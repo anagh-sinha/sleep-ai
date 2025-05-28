@@ -125,4 +125,9 @@ def process_audio():
 if __name__ == '__main__':
     # Create necessary directories if they don't exist
     os.makedirs('static/audio', exist_ok=True)
-    app.run(debug=True, port=5000, host='0.0.0.0')
+    
+    # Get port from environment variable or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Run the app
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') != 'production')
