@@ -67,6 +67,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusElement.textContent = 'Tap the button to speak again';
             };
 
+            // Set up audio element events for the response audio
+            const responseAudio = document.getElementById('responseAudio');
+            
+            responseAudio.onplay = () => {
+                updateButtonState('playing');
+                statusElement.textContent = 'Playing...';
+            };
+
+            responseAudio.onpause = () => {
+                // Only update to paused state if we're not in the middle of another state change
+                if (currentState === 'playing') {
+                    updateButtonState('paused');
+                    statusElement.textContent = 'Paused';
+                }
+            };
+
+            responseAudio.onended = () => {
+                updateButtonState('idle');
+                statusElement.textContent = 'Tap the button to speak again';
+            };
+            
+            // Keep the global audio variable for any other audio needs
+            audio = responseAudio;
+
             controlButton.addEventListener('click', handleControlButtonClick);
         })
         .catch(err => {
@@ -116,18 +140,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pauseAudio() {
-        audio.pause();
-        updateButtonState('paused');
+        const responseAudio = document.getElementById('responseAudio');
+        if (!responseAudio.paused) {
+            responseAudio.pause();
+            updateButtonState('paused');
+            statusElement.textContent = 'Paused';
+        }
     }
 
     function resumeAudio() {
-        audio.play();
-        updateButtonState('playing');
+        const responseAudio = document.getElementById('responseAudio');
+        responseAudio.play().then(() => {
+            updateButtonState('playing');
+            statusElement.textContent = 'Playing...';
+        });
     }
 
     function playAudio() {
-        audio.play();
-        updateButtonState('playing');
+        const responseAudio = document.getElementById('responseAudio');
+        responseAudio.play().then(() => {
+            updateButtonState('playing');
+            statusElement.textContent = 'Playing...';
+        }).catch(e => {
+            console.error('Playback failed:', e);
+            statusElement.textContent = 'Playback failed. Tap to try again.';
+            updateButtonState('play');
+        });
     }
 
     function updateButtonState(state) {
