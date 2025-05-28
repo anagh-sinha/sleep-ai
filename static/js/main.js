@@ -41,17 +41,17 @@ const initializeMicrophone = async () => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
-    // iOS requires specific MIME types and constraints
-    const mimeType = isIOS ? 'audio/mp4' : 
-        (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 
-            'audio/webm;codecs=opus' : 'audio/webm');
+    // Use WebM with Opus codec for recording (widely supported)
+    // We'll convert to WAV before sending to the server
+    const mimeType = 'audio/webm;codecs=opus';
     
-    // Prepare constraints based on platform
+    // Prepare constraints
     const constraints = {
         audio: {
             echoCancellation: true,
             noiseSuppression: true,
             sampleRate: 16000,
+            channelCount: 1, // Mono recording
             // iOS specific constraints
             ...(isIOS && {
                 mandatory: {
@@ -77,7 +77,14 @@ const initializeMicrophone = async () => {
 
 // Set up media recorder with the provided stream
 function setupMediaRecorder(stream, mimeType) {
-    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    // Check if the requested MIME type is supported
+    const options = { mimeType };
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.warn(`MIME type ${mimeType} not supported, using default`);
+        delete options.mimeType; // Let the browser choose a supported format
+    }
+    
+    mediaRecorder = new MediaRecorder(stream, options);
     
     mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
@@ -414,12 +421,29 @@ async function processAudio() {
     }
     
     const formData = new FormData();
-    // Use the correct MIME type and file extension
-    const fileExt = audioBlob.type.includes('webm') ? '.webm' : 
-                   audioBlob.type.includes('wav') ? '.wav' : '.webm';
-    const fileName = `recording_${Date.now()}${fileExt}`;
     
-    formData.append('audio', audioBlob, fileName);
+    // Always use WAV format for maximum compatibility
+    const fileName = `recording_${Date.now()}.wav`;
+    
+    // Convert the blob to WAV format if it's not already
+    let audioBlobToSend = audioBlob;
+    if (!audioBlob.type.includes('wav')) {
+        try {
+            // Convert the blob to WAV format
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            // Convert to WAV
+            const wavBlob = await audioBufferToWav(audioBuffer);
+            audioBlobToSend = new Blob([wavBlob], { type: 'audio/wav' });
+        } catch (error) {
+            console.error('Error converting audio to WAV:', error);
+            // Fall back to original blob if conversion fails
+        }
+    }
+    
+    formData.append('audio', audioBlobToSend, fileName);
     if (sessionId) {
         formData.append('session_id', sessionId);
     }
@@ -537,6 +561,64 @@ async function processAudio() {
         
         // Add error message to conversation
         addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
+    }
+}
+
+// Convert AudioBuffer to WAV format
+function audioBufferToWav(audioBuffer) {
+    const numChannels = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const format = 3; // Float32
+    const bitDepth = 32;
+    
+    const bytesPerSample = bitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    
+    // Create buffer for WAV header
+    const buffer = new ArrayBuffer(44 + audioBuffer.length * numChannels * bytesPerSample);
+    const view = new DataView(buffer);
+    
+    // Write WAV header
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + audioBuffer.length * numChannels * bytesPerSample, true);
+    writeString(view, 8, 'WAVE');
+    
+    // Write format chunk
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true); // Subchunk1Size
+    view.setUint16(20, format, true); // AudioFormat (3 = float)
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true); // ByteRate
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitDepth, true);
+    
+    // Write data chunk
+    writeString(view, 36, 'data');
+    view.setUint32(40, audioBuffer.length * numChannels * bytesPerSample, true);
+    
+    // Write audio data
+    const offset = 44;
+    const channels = [];
+    
+    for (let i = 0; i < numChannels; i++) {
+        channels.push(audioBuffer.getChannelData(i));
+    }
+    
+    for (let i = 0; i < audioBuffer.length; i++) {
+        for (let channel = 0; channel < numChannels; channel++) {
+            const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+            view.setFloat32(offset + (i * numChannels + channel) * bytesPerSample, sample, true);
+        }
+    }
+    
+    return new DataView(buffer);
+}
+
+// Helper function to write string to DataView
+function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
     }
 }
 
