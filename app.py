@@ -62,38 +62,61 @@ def process_audio():
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
         
-        # Add user message to conversation history
+        # Add user message to conversation history (keep only last 3 messages for context)
         conversation_history.append({"role": "user", "content": user_message})
         
-        # Get response from GPT-3.5-turbo
+        # Keep only the last 3 exchanges to limit context size
+        if len(conversation_history) > 6:  # 3 exchanges (user + assistant) * 2
+            conversation_history.pop(0)  # Remove the oldest exchange
+        
+        # Get response from GPT-3.5-turbo with streaming
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=conversation_history,
             temperature=0.7,
-            max_tokens=500
+            max_tokens=300,  # Limit response length
+            stream=True
         )
         
-        # Get the assistant's response
-        assistant_response = response.choices[0].message.content
+        # Stream the response
+        collected_chunks = []
+        assistant_response = ""
+        
+        for chunk in response:
+            if chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                assistant_response += content
+                collected_chunks.append(content)
         
         # Add assistant's response to conversation history
-        conversation_history.append({"role": "assistant", "content": assistant_response})
+        if assistant_response:
+            conversation_history.append({"role": "assistant", "content": assistant_response})
         
-        # Generate speech from the response using OpenAI's TTS
-        tts_response = client.audio.speech.create(
-            model="tts-1",
-            voice="alloy",
-            input=assistant_response
-        )
-        
-        # Save the audio response
-        output_audio_path = f"static/audio/response_{int(time.time())}.mp3"
-        tts_response.stream_to_file(output_audio_path)
-        
-        return jsonify({
-            'text': assistant_response,
-            'audio_url': f'/{output_audio_path}'
-        })
+        # Generate speech from the response using OpenAI's TTS (faster model)
+        try:
+            tts_response = client.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input=assistant_response,
+                speed=1.0  # Slightly faster speech
+            )
+            
+            # Save the audio response
+            output_audio_path = f"static/audio/response_{int(time.time())}.mp3"
+            tts_response.stream_to_file(output_audio_path)
+            
+            return jsonify({
+                'text': assistant_response,
+                'audio_url': f'/{output_audio_path}'
+            })
+            
+        except Exception as tts_error:
+            print(f"TTS Error: {str(tts_error)}")
+            # Return text response even if TTS fails
+            return jsonify({
+                'text': assistant_response,
+                'error': 'Could not generate audio'
+            })
         
     except Exception as e:
         print(f"Error: {str(e)}")

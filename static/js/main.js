@@ -216,7 +216,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const userMessage = transcribeData.text;
             addMessage('user', userMessage);
             
-            // Then process the transcribed text
+            // Update UI with initial assistant message (shows loading state)
+            const assistantMessage = addMessage('assistant', '...');
+            
+            // Process the response as a stream
             const processResponse = await fetch('/process_audio', {
                 method: 'POST',
                 headers: {
@@ -235,15 +238,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(processData.error);
             }
             
-            // Update UI with assistant's response
-            addMessage('assistant', processData.text);
+            // Update the assistant's message with the full response
+            updateMessage(assistantMessage, processData.text);
             
-            // Set up the audio response
-            const responseAudio = document.getElementById('responseAudio');
-            responseAudio.src = processData.audio_url;
-            
-            // Auto-play the response
-            responseAudio.play();
+            if (processData.audio_url) {
+                // Set up the audio response
+                const responseAudio = document.getElementById('responseAudio');
+                responseAudio.src = processData.audio_url;
+                
+                // Auto-play the response
+                responseAudio.play().catch(e => {
+                    console.error('Auto-play failed:', e);
+                    // If autoplay fails, show a play button
+                    updateButtonState('play');
+                });
+                
+                // When audio ends, reset the button state
+                responseAudio.onended = () => {
+                    updateButtonState('idle');
+                };
+            }
             
             statusElement.textContent = 'Ready';
             
@@ -267,6 +281,16 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Scroll to bottom
         conversationElement.scrollTop = conversationElement.scrollHeight;
+        
+        return messageDiv; // Return the message element so it can be updated later
+    }
+    
+    function updateMessage(messageElement, newText) {
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.textContent = newText;
+            conversationElement.scrollTop = conversationElement.scrollHeight;
+        }
     }
     
 });
