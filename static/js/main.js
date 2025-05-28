@@ -11,9 +11,144 @@ let sessionId = null;
 let conversationHistory = [];
 
 // DOM elements
-let controlButton, statusElement, conversationElement;
+let controlButton, statusElement, conversationElement, micPermissionGranted = false;
 
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize audio context for better iOS compatibility
+const initializeAudioContext = () => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+        const audioContext = new AudioContext();
+        // Create empty buffer and play it to unlock audio on iOS
+        const buffer = audioContext.createBuffer(1, 1, 22050);
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+        source.start(0);
+        // Resume the audio context in case it was suspended
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    }
+};
+
+// Initialize microphone access
+const initializeMicrophone = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Audio recording is not supported in your browser.');
+    }
+
+    // Check if we're on iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // iOS requires specific MIME types and constraints
+    const mimeType = isIOS ? 'audio/mp4' : 
+        (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 
+            'audio/webm;codecs=opus' : 'audio/webm');
+    
+    // Prepare constraints based on platform
+    const constraints = {
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 16000,
+            // iOS specific constraints
+            ...(isIOS && {
+                mandatory: {
+                    googEchoCancellation: 'false',
+                    googAutoGainControl: 'false',
+                    googNoiseSuppression: 'false',
+                    googHighpassFilter: 'false'
+                },
+                optional: []
+            })
+        }
+    };
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('Successfully got media stream');
+        return { stream, mimeType };
+    } catch (error) {
+        console.error('Error accessing microphone:', error);
+        throw error;
+    }
+};
+
+// Set up media recorder with the provided stream
+function setupMediaRecorder(stream, mimeType) {
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+            audioChunks.push(e.data);
+        }
+    };
+
+    mediaRecorder.onstop = async () => {
+        // Use the same MIME type that was used for recording
+        const recordedMimeType = mediaRecorder.mimeType || 'audio/webm';
+        audioBlob = new Blob(audioChunks, { type: recordedMimeType });
+        audioUrl = URL.createObjectURL(audioBlob);
+
+        // Update UI to show processing state
+        updateButtonState('processing');
+        statusElement.textContent = 'Processing your request...';
+
+        try {
+            // Send the audio to the server for processing
+            await processAudio();
+            // After processing, switch to play state
+            updateButtonState('play');
+        } catch (error) {
+            console.error('Error processing audio:', error);
+            statusElement.textContent = 'Error processing your request. Please try again.';
+            updateButtonState('idle');
+        }
+    };
+}
+
+// Handle microphone errors
+function handleMicrophoneError(error) {
+    console.error('Microphone error:', error);
+    let errorMessage = 'Error accessing microphone';
+    
+    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage = 'Microphone access was denied. Please allow microphone access in your browser settings.';
+    } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage = 'No microphone found. Please check your device settings.';
+    } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Microphone is already in use by another application.';
+    } else if (error.name === 'OverconstrainedError') {
+        errorMessage = 'The requested microphone configuration is not supported.';
+    } else if (error.name === 'SecurityError') {
+        errorMessage = 'Microphone access is not allowed in this context. Please use HTTPS.';
+    }
+    
+    statusElement.textContent = errorMessage;
+    updateButtonState('error');
+    
+    // Show a more prominent error message
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-message';
+    errorDiv.textContent = errorMessage;
+    errorDiv.style.cssText = 'color: #ff4444; margin-top: 10px; padding: 10px; border: 1px solid #ff4444; border-radius: 4px; background-color: #ffeeee;';
+    
+    // Insert after the record button
+    const buttonContainer = document.querySelector('.button-container');
+    if (buttonContainer) {
+        buttonContainer.appendChild(errorDiv);
+        
+        // Remove error message after 10 seconds
+        setTimeout(() => {
+            if (errorDiv.parentNode) {
+                errorDiv.remove();
+            }
+        }, 10000);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
     // Initialize DOM elements
     controlButton = document.getElementById('controlButton');
     statusElement = document.getElementById('status');
@@ -22,114 +157,65 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize session
     initializeSession();
 
-    // Check if browser supports mediaDevices
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        statusElement.textContent = 'Audio recording is not supported in your browser.';
-        controlButton.disabled = true;
-        return;
+    // Initialize audio context on user interaction
+    document.body.addEventListener('touchstart', initializeAudioContext, { once: true });
+    document.body.addEventListener('touchend', initializeAudioContext, { once: true });
+    
+    // Show loading state
+    statusElement.textContent = 'Initializing microphone...';
+    controlButton.disabled = true;
+
+    try {
+        // Initialize microphone
+        const { stream, mimeType } = await initializeMicrophone();
+        micPermissionGranted = true;
+        
+        // Set up media recorder
+        setupMediaRecorder(stream, mimeType);
+        
+        // Enable the control button
+        controlButton.disabled = false;
+        statusElement.textContent = 'Tap the button to start speaking';
+    } catch (error) {
+        handleMicrophoneError(error);
     }
 
-    // Initialize media recorder with specific MIME type for better compatibility
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 
-        'audio/webm;codecs=opus' : 'audio/webm';
-        
-    navigator.mediaDevices.getUserMedia({ 
-        audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 16000
-        } 
-    })
-    .then(stream => {
-        mediaRecorder = new MediaRecorder(stream, { mimeType });
+    // Set up audio element
+    const responseAudio = document.getElementById('responseAudio');
+    
+    // Set up audio element events for the response audio
+    responseAudio.onplay = () => {
+        updateButtonState('playing');
+        statusElement.textContent = 'Playing...';
+    };
 
-        mediaRecorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) {
-                audioChunks.push(e.data);
-            }
-        };
-
-            mediaRecorder.onstop = async () => {
-                // Use the same MIME type that was used for recording
-                const recordedMimeType = mediaRecorder.mimeType || 'audio/webm';
-                audioBlob = new Blob(audioChunks, { type: recordedMimeType });
-                audioUrl = URL.createObjectURL(audioBlob);
-
-                // Update UI to show processing state
-                updateButtonState('processing');
-                statusElement.textContent = 'Processing your request...';
-
-                try {
-                    // Send the audio to the server for processing
-                    await processAudio();
-                    // After processing, switch to play state
-                    updateButtonState('play');
-                } catch (error) {
-                    console.error('Error processing audio:', error);
-                    statusElement.textContent = 'Error processing your request. Please try again.';
-                    updateButtonState('idle');
-                }
-            };
-
-            // Set up audio element events
-            audio.onplay = () => {
-                updateButtonState('playing');
-            };
-
-            audio.onpause = () => {
-                if (currentState !== 'paused') {
-                    updateButtonState('paused');
-                }
-            };
-
-            audio.onended = () => {
-                updateButtonState('idle');
-                statusElement.textContent = 'Tap the button to speak again';
-            };
-
-            // Set up audio element events for the response audio
-            const responseAudio = document.getElementById('responseAudio');
-            
-            responseAudio.onplay = () => {
-                updateButtonState('playing');
-                statusElement.textContent = 'Playing...';
-            };
-
-            responseAudio.onpause = () => {
-                // Only update to paused state if we're not in the middle of another state change
-                if (currentState === 'playing') {
-                    updateButtonState('paused');
-                    statusElement.textContent = 'Paused';
-                }
-            };
-
-            responseAudio.onended = () => {
-                updateButtonState('idle');
-                statusElement.textContent = 'Tap the button to speak again';
-            };
-            
-            // Keep the global audio variable for any other audio needs
-            audio = responseAudio;
-
-                    controlButton.addEventListener('click', handleControlButtonClick);
-        })
-        .catch(err => {
-            console.error('Error accessing microphone:', err);
-            statusElement.textContent = 'Error accessing microphone. Please check permissions.';
-            controlButton.disabled = true;
-        });
-
-    // Add event listeners for keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        // Space bar to toggle recording/playback
-        if (e.code === 'Space' && !e.target.matches('input, textarea, button, select')) {
-            e.preventDefault();
-            handleControlButtonClick();
+    responseAudio.onpause = () => {
+        // Only update to paused state if we're not in the middle of another state change
+        if (currentState === 'playing') {
+            updateButtonState('paused');
+            statusElement.textContent = 'Paused';
         }
-    });
+    };
 
-    // Add event listener for the control button
+    responseAudio.onended = () => {
+        updateButtonState('idle');
+        statusElement.textContent = 'Tap the button to speak again';
+    };
+    
+    // Keep the global audio variable for any other audio needs
+    audio = responseAudio;
+
+    // Add click event listener for the control button
     controlButton.addEventListener('click', handleControlButtonClick);
+});
+
+// Add event listeners for keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    // Space bar to toggle recording/playback
+    if (e.code === 'Space' && !e.target.matches('input, textarea, button, select')) {
+        e.preventDefault();
+        handleControlButtonClick();
+    }
 });
 
 // Initialize or retrieve user session
