@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sleep Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="assistant-container">
+            <div class="moon">
+                <div class="crater"></div>
+                <div class="crater"></div>
+                <div class="crater"></div>
+            </div>
+            <h1>Beta Sleep Assistant</h1>
+            <p class="subtitle">A calming voice agent to help you learn about your sleep patterns, relax and sleep better</p>
+            
+            <div class="status" id="status">Click the microphone to start talking</div>
+            
+            <div class="controls">
+                <button id="recordButton" class="mic-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" x2="12" y1="19" y2="22"></line>
+                    </svg>
+                </button>
+                <button id="playButton" class="play-button" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="conversation" id="conversation">
+                <div class="message assistant">
+                    <div class="message-content">
+                        Hello! I'm your friendly sleep assistant. How can I help you relax tonight?
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <audio id="responseAudio" preload="auto"></audio>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
