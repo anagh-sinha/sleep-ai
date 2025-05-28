@@ -132,54 +132,61 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateButtonState(state) {
         currentState = state;
+        const buttonText = controlButton.querySelector('.button-text');
+        const micIcon = controlButton.querySelector('.mic-icon');
+        
+        // Reset all classes first
+        controlButton.className = 'control-button';
+        controlButton.classList.add(state);
+        
+        // Update button content based on state
         switch (state) {
             case 'idle':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                        <line x1="12" x2="12" y1="19" y2="22"></line>
-                    </svg>
+                buttonText.textContent = 'Tap to Speak';
+                micIcon.innerHTML = `
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" x2="12" y1="19" y2="22"></line>
                 `;
                 break;
+                
             case 'recording':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <circle cx="12" cy="12" r="3"></circle>
-                        <circle cx="12" cy="12" r="10" style="fill:none"></circle>
-                    </svg>
+                buttonText.textContent = 'Listening...';
+                micIcon.innerHTML = `
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <circle cx="12" cy="12" r="10" style="fill:none"></circle>
                 `;
                 break;
+                
             case 'playing':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <path d="M5 4v7h6V4H5z"></path>
-                        <path d="M19 4v7h-6V4h6z"></path>
-                    </svg>
+                buttonText.textContent = 'Now Playing';
+                micIcon.innerHTML = `
+                    <path d="M5 4v7h6V4H5z"></path>
+                    <path d="M19 4v7h-6V4h6z"></path>
                 `;
                 break;
+                
             case 'paused':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <path d="M5 4h6v7H5V4z"></path>
-                        <path d="M19 4h-6v7h6V4z"></path>
-                    </svg>
+                buttonText.textContent = 'Paused';
+                micIcon.innerHTML = `
+                    <path d="M5 4h6v7H5V4z"></path>
+                    <path d="M19 4h-6v7h6V4z"></path>
                 `;
                 break;
+                
             case 'play':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <path d="M5 4v7h6V4H5z"></path>
-                        <path d="M19 4v7h-6V4h6z"></path>
-                    </svg>
+                buttonText.textContent = 'Play Response';
+                micIcon.innerHTML = `
+                    <path d="M5 4v7h6V4H5z"></path>
+                    <path d="M19 4v7h-6V4h6z"></path>
                 `;
                 break;
+                
             case 'processing':
-                controlButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mic-icon">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" x2="12" y1="12" y2="12"></line>
-                    </svg>
+                buttonText.textContent = 'Processing...';
+                micIcon.innerHTML = `
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 6v6l4 2"></path>
                 `;
                 break;
         }
@@ -187,32 +194,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function processAudio() {
         try {
-            // Create FormData and append the audio blob
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
-
-            // Send the audio to the server for processing
-            const response = await fetch('/process_audio', {
+            // First, transcribe the audio
+            const audioFormData = new FormData();
+            audioFormData.append('audio', audioBlob, 'recording.webm');
+            
+            const transcribeResponse = await fetch('/transcribe_audio', {
                 method: 'POST',
-                body: formData
+                body: audioFormData
             });
 
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
+            if (!transcribeResponse.ok) {
+                throw new Error('Failed to transcribe audio');
             }
             
-            const data = await response.json();
+            const transcribeData = await transcribeResponse.json();
             
-            if (data.error) {
-                throw new Error(data.error);
+            if (!transcribeData.success) {
+                throw new Error(transcribeData.error || 'Transcription failed');
+            }
+            
+            const userMessage = transcribeData.text;
+            addMessage('user', userMessage);
+            
+            // Then process the transcribed text
+            const processResponse = await fetch('/process_audio', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: userMessage })
+            });
+
+            if (!processResponse.ok) {
+                throw new Error('Failed to process message');
+            }
+            
+            const processData = await processResponse.json();
+            
+            if (processData.error) {
+                throw new Error(processData.error);
             }
             
             // Update UI with assistant's response
-            addMessage('assistant', data.text);
+            addMessage('assistant', processData.text);
             
             // Set up the audio response
-            responseAudio.src = data.audio_url;
-            playButton.disabled = false;
+            const responseAudio = document.getElementById('responseAudio');
+            responseAudio.src = processData.audio_url;
             
             // Auto-play the response
             responseAudio.play();
@@ -222,6 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error:', error);
             statusElement.textContent = 'Error: ' + (error.message || 'Something went wrong');
+            updateButtonState('idle');
         }
     }
     
@@ -240,6 +269,4 @@ document.addEventListener('DOMContentLoaded', () => {
         conversationElement.scrollTop = conversationElement.scrollHeight;
     }
     
-    // Initialize the media recorder when the page loads
-    initMediaRecorder();
 });
