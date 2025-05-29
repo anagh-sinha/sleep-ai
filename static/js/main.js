@@ -1,608 +1,731 @@
-// ========================================
-// Core Sleep Assistant - Fixed & Tested
-// ========================================
+// Enhanced Sleep AI - Mobile Optimized JavaScript
 
-// Global Variables
-let mediaRecorder = null;
-let audioChunks = [];
-let currentState = 'idle';
-let sessionId = null;
-let micStream = null;
-let micPermissionGranted = false;
+// Utility Functions
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isAndroid = /Android/i.test(navigator.userAgent);
 
-// DOM Elements
-const elements = {};
-
-// ========================================
-// Initialization
-// ========================================
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🌙 Somni Sleep Assistant starting...');
-    
-    try {
-        bindElements();
-        setupEventListeners();
-        initializeSession();
-        await initializeMicrophone();
-        console.log('✅ Somni ready!');
-    } catch (error) {
-        console.error('❌ Initialization error:', error);
-        showError('Failed to initialize app');
-    }
-});
-
-function bindElements() {
-    elements.voiceButton = document.getElementById('voiceButton');
-    elements.statusText = document.getElementById('statusText');
-    elements.statusIndicator = document.getElementById('statusIndicator');
-    elements.micIcon = document.getElementById('micIcon');
-    elements.btnText = document.getElementById('btnText');
-    elements.aiAvatar = document.getElementById('aiAvatar');
-    elements.conversation = document.getElementById('conversation');
-    elements.responseAudio = document.getElementById('responseAudio');
-    elements.meditationBtn = document.getElementById('meditationBtn');
-    elements.storyBtn = document.getElementById('storyBtn');
-    elements.breathingBtn = document.getElementById('breathingBtn');
-    
-    console.log('📌 DOM elements bound');
+// Prevent iOS bounce
+if (isIOS) {
+    document.addEventListener('touchmove', (e) => {
+        if (e.target.closest('.conversation-container')) return;
+        e.preventDefault();
+    }, { passive: false });
 }
 
-function setupEventListeners() {
-    // Voice button
-    if (elements.voiceButton) {
-        elements.voiceButton.addEventListener('click', handleVoiceButtonClick);
+// Enhanced Starfield Animation
+class Starfield {
+    constructor() {
+        this.container = document.getElementById('starfield');
+        this.stars = [];
+        this.init();
     }
     
-    // Quick action buttons
-    if (elements.meditationBtn) {
-        elements.meditationBtn.addEventListener('click', () => sendQuickMessage('meditation'));
-    }
-    if (elements.storyBtn) {
-        elements.storyBtn.addEventListener('click', () => sendQuickMessage('story'));
-    }
-    if (elements.breathingBtn) {
-        elements.breathingBtn.addEventListener('click', () => sendQuickMessage('breathing'));
-    }
-    
-    // Audio events
-    if (elements.responseAudio) {
-        elements.responseAudio.addEventListener('play', () => {
-            setState('playing');
-            updateStatus('Playing response...', 'playing');
-            setAvatarState('speaking');
-        });
+    init() {
+        const starCount = isMobile ? 100 : 150;
         
-        elements.responseAudio.addEventListener('ended', () => {
-            setState('idle');
-            updateStatus('Ready to help you relax', 'idle');
-            setAvatarState('idle');
-        });
-        
-        elements.responseAudio.addEventListener('error', (e) => {
-            console.error('Audio playback error:', e);
-            setState('idle');
-            updateStatus('Audio playback failed', 'idle');
-        });
-    }
-    
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && !e.target.matches('input, textarea, button')) {
-            e.preventDefault();
-            handleVoiceButtonClick();
+        for (let i = 0; i < starCount; i++) {
+            const star = this.createStar();
+            this.container.appendChild(star);
+            this.stars.push(star);
         }
-    });
-    
-    console.log('🎧 Event listeners setup complete');
-}
-
-// ========================================
-// Microphone & Recording
-// ========================================
-async function initializeMicrophone() {
-    updateStatus('Requesting microphone access...', 'processing');
-    if (elements.voiceButton) {
-        elements.voiceButton.disabled = true;
+        
+        // Shooting stars with reduced frequency on mobile
+        const shootingStarInterval = isMobile ? 5000 : 3000;
+        setInterval(() => {
+            if (Math.random() > 0.7) {
+                this.createShootingStar();
+            }
+        }, shootingStarInterval);
     }
     
-    try {
+    createStar() {
+        const star = document.createElement('div');
+        star.className = 'star';
+        star.style.left = Math.random() * 100 + '%';
+        star.style.top = Math.random() * 100 + '%';
+        star.style.width = Math.random() * 3 + 1 + 'px';
+        star.style.height = star.style.width;
+        star.style.setProperty('--duration', Math.random() * 3 + 2 + 's');
+        star.style.setProperty('--glow-size', Math.random() * 10 + 5 + 'px');
+        star.style.animationDelay = Math.random() * 5 + 's';
+        return star;
+    }
+    
+    createShootingStar() {
+        const shootingStar = document.createElement('div');
+        shootingStar.className = 'shooting-star';
+        shootingStar.style.left = Math.random() * 50 + '%';
+        shootingStar.style.top = Math.random() * 50 + '%';
+        this.container.appendChild(shootingStar);
+        
+        setTimeout(() => shootingStar.remove(), 3000);
+    }
+}
+
+// Enhanced Voice Assistant with Mobile Optimizations
+class VoiceAssistant {
+    constructor() {
+        this.isRecording = false;
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.sessionId = this.getOrCreateSessionId();
+        this.stream = null;
+        this.audioContext = null;
+        this.recordingStartTime = null;
+        
+        // DOM Elements
+        this.voiceBtn = document.getElementById('voiceButton');
+        this.btnText = document.getElementById('btnText');
+        this.micIcon = document.getElementById('micIcon');
+        this.statusText = document.getElementById('statusText');
+        this.statusIndicator = document.getElementById('statusIndicator');
+        this.conversation = document.getElementById('conversation');
+        this.aiAvatar = document.getElementById('aiAvatar');
+        this.responseAudio = document.getElementById('responseAudio');
+        
+        this.init();
+    }
+    
+    init() {
+        this.initializeEventListeners();
+        this.checkMicrophoneSupport();
+        this.setupAudioContext();
+        
+        // Request microphone permission early on mobile
+        if (isMobile) {
+            this.voiceBtn.addEventListener('click', () => {
+                if (!this.hasRequestedPermission) {
+                    this.requestMicrophonePermission();
+                }
+            }, { once: true });
+        }
+    }
+    
+    setupAudioContext() {
+        // Create audio context for better mobile audio handling
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+            this.audioContext = new AudioContext();
+            
+            // Resume audio context on user interaction (iOS requirement)
+            document.addEventListener('touchstart', () => {
+                if (this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+            }, { once: true });
+        }
+    }
+    
+    getOrCreateSessionId() {
+        try {
+            let sessionId = localStorage.getItem('somni_session_id');
+            if (!sessionId) {
+                sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+                localStorage.setItem('somni_session_id', sessionId);
+            }
+            return sessionId;
+        } catch (e) {
+            // Fallback for private browsing
+            return 'session_' + Date.now();
+        }
+    }
+    
+    checkMicrophoneSupport() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error('Microphone access not supported in this browser');
+            this.showError('Your browser doesn\'t support audio recording.');
+            this.voiceBtn.disabled = true;
+            return false;
         }
+        return true;
+    }
+    
+    async requestMicrophonePermission() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            this.hasRequestedPermission = true;
+            return true;
+        } catch (error) {
+            console.error('Microphone permission denied:', error);
+            return false;
+        }
+    }
+    
+    initializeEventListeners() {
+        // Voice button with touch optimization
+        let touchStarted = false;
         
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                sampleRate: 16000
+        this.voiceBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchStarted = true;
+            this.voiceBtn.classList.add('active');
+        });
+        
+        this.voiceBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (touchStarted) {
+                this.toggleRecording();
+                touchStarted = false;
+                this.voiceBtn.classList.remove('active');
             }
         });
         
-        setupMediaRecorder();
-        micPermissionGranted = true;
+        // Fallback for non-touch devices
+        this.voiceBtn.addEventListener('click', (e) => {
+            if (!touchStarted) {
+                e.preventDefault();
+                this.toggleRecording();
+            }
+        });
         
-        updateStatus('Ready to help you relax', 'idle');
-        if (elements.voiceButton) {
-            elements.voiceButton.disabled = false;
+        // Quick action buttons
+        this.setupQuickActions();
+        
+        // AI Avatar interaction
+        this.aiAvatar.addEventListener('click', () => {
+            this.handleAvatarClick();
+        });
+        
+        // Handle app lifecycle events
+        this.setupLifecycleHandlers();
+    }
+    
+    setupQuickActions() {
+        const actions = {
+            'meditationBtn': 'Guide me through a relaxing meditation for sleep',
+            'storyBtn': 'Tell me a calming bedtime story',
+            'breathingBtn': 'Lead me through a breathing exercise to help me relax'
+        };
+        
+        Object.entries(actions).forEach(([id, message]) => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.addEventListener('click', () => {
+                    this.sendQuickMessage(message);
+                    this.provideHapticFeedback();
+                });
+            }
+        });
+    }
+    
+    setupLifecycleHandlers() {
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && this.isRecording) {
+                this.stopRecording();
+            }
+        });
+        
+        // Handle iOS audio session interruptions
+        if (isIOS) {
+            window.addEventListener('blur', () => {
+                if (this.isRecording) {
+                    this.stopRecording();
+                }
+            });
+        }
+    }
+    
+    provideHapticFeedback() {
+        if ('vibrate' in navigator) {
+            navigator.vibrate(10);
+        }
+    }
+    
+    async toggleRecording() {
+        if (this.isRecording) {
+            this.stopRecording();
+        } else {
+            await this.startRecording();
+        }
+    }
+    
+    async startRecording() {
+        try {
+            // Check permissions first
+            if (!this.checkMicrophoneSupport()) return;
+            
+            // Audio constraints optimized for speech
+            const constraints = {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    sampleRate: isIOS ? 44100 : 48000,
+                    channelCount: 1
+                }
+            };
+            
+            this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            // Find best supported audio format
+            const mimeType = this.getBestAudioFormat();
+            
+            // Create MediaRecorder with optimal settings
+            const options = {
+                mimeType: mimeType,
+                audioBitsPerSecond: 128000
+            };
+            
+            try {
+                this.mediaRecorder = new MediaRecorder(this.stream, options);
+            } catch (e) {
+                // Fallback without options
+                this.mediaRecorder = new MediaRecorder(this.stream);
+            }
+            
+            this.audioChunks = [];
+            this.recordingStartTime = Date.now();
+            
+            // Set up MediaRecorder event handlers
+            this.mediaRecorder.addEventListener('dataavailable', (event) => {
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                }
+            });
+            
+            this.mediaRecorder.addEventListener('stop', () => {
+                this.processRecording();
+            });
+            
+            this.mediaRecorder.addEventListener('error', (event) => {
+                console.error('MediaRecorder error:', event);
+                this.showError('Recording error occurred');
+                this.resetUI();
+            });
+            
+            // Start recording with timeslice for better memory management
+            this.mediaRecorder.start(100);
+            this.isRecording = true;
+            
+            // Update UI
+            this.updateRecordingUI(true);
+            
+            // Provide feedback
+            this.provideHapticFeedback();
+            
+            // Auto-stop after 60 seconds to prevent excessive recordings
+            this.recordingTimeout = setTimeout(() => {
+                if (this.isRecording) {
+                    this.stopRecording();
+                    this.showError('Recording stopped: Maximum duration reached');
+                }
+            }, 60000);
+            
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            this.handleRecordingError(error);
+        }
+    }
+    
+    getBestAudioFormat() {
+        const formats = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/mp4',
+            'audio/mpeg',
+            'audio/wav'
+        ];
+        
+        // iOS specific handling
+        if (isIOS) {
+            formats.unshift('audio/mp4', 'audio/mpeg');
         }
         
-        console.log('🎤 Microphone access granted');
+        for (const format of formats) {
+            if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(format)) {
+                return format;
+            }
+        }
         
-    } catch (error) {
-        handleMicrophoneError(error);
+        return ''; // Let browser choose default
     }
-}
-
-function setupMediaRecorder() {
-    if (!micStream) return;
     
-    let mimeType = 'audio/webm;codecs=opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = 'audio/wav';
+    stopRecording() {
+        if (this.recordingTimeout) {
+            clearTimeout(this.recordingTimeout);
+        }
+        
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            try {
+                this.mediaRecorder.stop();
+                this.isRecording = false;
+                
+                // Stop all tracks
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+                
+                // Update UI immediately
+                this.updateRecordingUI(false);
+                
+            } catch (error) {
+                console.error('Error stopping recording:', error);
+                this.resetUI();
+            }
         }
     }
     
-    console.log('🎵 Using MIME type:', mimeType);
-    
-    try {
-        mediaRecorder = new MediaRecorder(micStream, { mimeType });
+    async processRecording() {
+        // Check recording duration
+        const duration = Date.now() - this.recordingStartTime;
+        if (duration < 500) {
+            this.showError('Recording too short. Please hold to speak.');
+            this.resetUI();
+            return;
+        }
         
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-                audioChunks.push(event.data);
+        if (this.audioChunks.length === 0) {
+            this.showError('No audio recorded. Please try again.');
+            this.resetUI();
+            return;
+        }
+        
+        try {
+            // Create blob with detected mime type
+            const mimeType = this.mediaRecorder.mimeType || 'audio/webm';
+            const audioBlob = new Blob(this.audioChunks, { type: mimeType });
+            
+            if (audioBlob.size === 0) {
+                throw new Error('Empty audio recording');
             }
-        };
-        
-        mediaRecorder.onstop = async () => {
-            await processRecording();
-        };
-        
-        mediaRecorder.onerror = (event) => {
-            console.error('MediaRecorder error:', event.error);
-            showError('Recording error occurred');
-            setState('idle');
-        };
-        
-        console.log('📼 MediaRecorder setup complete');
-        
-    } catch (error) {
-        console.error('MediaRecorder setup failed:', error);
-        showError('Recording setup failed');
-    }
-}
-
-function handleMicrophoneError(error) {
-    console.error('🚫 Microphone error:', error);
-    
-    let errorMessage = 'Microphone access failed';
-    
-    switch (error.name) {
-        case 'NotAllowedError':
-        case 'PermissionDeniedError':
-            errorMessage = 'Please allow microphone access to use voice features';
-            break;
-        case 'NotFoundError':
-        case 'DevicesNotFoundError':
-            errorMessage = 'No microphone found. Please check your device';
-            break;
-        case 'NotReadableError':
-            errorMessage = 'Microphone is being used by another application';
-            break;
-        case 'SecurityError':
-            errorMessage = 'Microphone access requires HTTPS connection';
-            break;
+            
+            // Show processing state
+            this.statusText.textContent = 'Processing your message...';
+            this.btnText.textContent = 'Processing...';
+            this.micIcon.textContent = '⏳';
+            
+            // Send to server
+            await this.uploadAudio(audioBlob);
+            
+        } catch (error) {
+            console.error('Error processing recording:', error);
+            this.showError('Could not process audio. Please try again.');
+            this.resetUI();
+        }
     }
     
-    updateStatus(errorMessage, 'error');
-    if (elements.voiceButton) {
-        elements.voiceButton.disabled = true;
-    }
-    showError(errorMessage);
-}
-
-// ========================================
-// Voice Control Logic
-// ========================================
-function handleVoiceButtonClick() {
-    console.log('🎯 Voice button clicked, current state:', currentState);
-    
-    if (!micPermissionGranted) {
-        showError('Microphone access required');
-        return;
-    }
-    
-    switch (currentState) {
-        case 'idle':
-            startRecording();
-            break;
-        case 'recording':
-            stopRecording();
-            break;
-        case 'playing':
-            if (elements.responseAudio) {
-                elements.responseAudio.pause();
+    async uploadAudio(audioBlob) {
+        const formData = new FormData();
+        const filename = `recording_${Date.now()}.${this.getFileExtension(audioBlob.type)}`;
+        formData.append('audio', audioBlob, filename);
+        formData.append('session_id', this.sessionId);
+        
+        try {
+            const response = await fetch('/transcribe_audio', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-            break;
-        case 'processing':
-            // Do nothing while processing
-            break;
+            
+            const data = await response.json();
+            
+            if (data.success && data.text) {
+                this.addMessage(data.text, 'user');
+                this.sessionId = data.session_id || this.sessionId;
+                await this.processMessage(data.text);
+            } else {
+                throw new Error(data.error || 'Transcription failed');
+            }
+            
+        } catch (error) {
+            console.error('Upload error:', error);
+            this.showError('Could not connect to server. Please check your connection.');
+            this.resetUI();
+        }
+    }
+    
+    getFileExtension(mimeType) {
+        const typeMap = {
+            'audio/webm': 'webm',
+            'audio/mp4': 'm4a',
+            'audio/mpeg': 'mp3',
+            'audio/wav': 'wav',
+            'audio/ogg': 'ogg'
+        };
+        return typeMap[mimeType] || 'webm';
+    }
+    
+    async sendQuickMessage(message) {
+        this.addMessage(message, 'user');
+        await this.processMessage(message);
+    }
+    
+    async processMessage(message) {
+        this.statusText.textContent = 'Somni is thinking...';
+        this.addTypingIndicator();
+        
+        try {
+            const response = await fetch('/process_message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    session_id: this.sessionId,
+                    generate_audio: true
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            this.removeTypingIndicator();
+            
+            if (data.success && data.text) {
+                this.addMessage(data.text, 'assistant');
+                
+                if (data.audio_url && !isMobile) {
+                    // Auto-play audio on desktop only
+                    this.playAudioResponse(data.audio_url);
+                } else if (data.audio_url) {
+                    // On mobile, show play button
+                    this.showAudioPlayOption(data.audio_url);
+                }
+                
+                this.sessionId = data.session_id || this.sessionId;
+            } else {
+                throw new Error(data.error || 'Failed to get response');
+            }
+            
+        } catch (error) {
+            console.error('Error processing message:', error);
+            this.removeTypingIndicator();
+            this.showError('Could not get response. Please try again.');
+        }
+        
+        this.resetUI();
+    }
+    
+    updateRecordingUI(isRecording) {
+        if (isRecording) {
+            this.voiceBtn.classList.add('recording');
+            this.btnText.textContent = 'Listening...';
+            this.micIcon.textContent = '🔴';
+            this.statusText.textContent = 'Listening to you...';
+            this.statusIndicator.classList.add('active');
+            this.aiAvatar.classList.add('listening');
+        } else {
+            this.voiceBtn.classList.remove('recording');
+            this.btnText.textContent = 'Processing...';
+            this.micIcon.textContent = '⏳';
+            this.statusText.textContent = 'Processing your message...';
+            this.aiAvatar.classList.remove('listening');
+        }
+    }
+    
+    addMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}`;
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = sender === 'user' ? '👤' : '🌙';
+        
+        const textDiv = document.createElement('div');
+        textDiv.className = 'text';
+        textDiv.textContent = text;
+        
+        messageDiv.appendChild(avatar);
+        messageDiv.appendChild(textDiv);
+        
+        this.conversation.appendChild(messageDiv);
+        this.scrollToBottom();
+    }
+    
+    addTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message assistant typing';
+        typingDiv.id = 'typingIndicator';
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = '🌙';
+        
+        const indicator = document.createElement('div');
+        indicator.className = 'typing-indicator';
+        indicator.innerHTML = '<span></span><span></span><span></span>';
+        
+        typingDiv.appendChild(avatar);
+        typingDiv.appendChild(indicator);
+        
+        this.conversation.appendChild(typingDiv);
+        this.scrollToBottom();
+    }
+    
+    removeTypingIndicator() {
+        const indicator = document.getElementById('typingIndicator');
+        if (indicator) {
+            indicator.remove();
+        }
+    }
+    
+    scrollToBottom() {
+        requestAnimationFrame(() => {
+            this.conversation.scrollTop = this.conversation.scrollHeight;
+        });
+    }
+    
+    async playAudioResponse(audioUrl) {
+        try {
+            // Resume audio context if needed (iOS)
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+            }
+            
+            this.responseAudio.src = audioUrl;
+            
+            // Try to play with user gesture handling
+            const playPromise = this.responseAudio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.log('Auto-play prevented:', e);
+                    this.showAudioPlayOption(audioUrl);
+                });
+            }
+        } catch (error) {
+            console.error('Audio playback error:', error);
+        }
+    }
+    
+    showAudioPlayOption(audioUrl) {
+        this.statusText.innerHTML = '🔊 Tap the moon to play response';
+        this.responseAudio.src = audioUrl;
+    }
+    
+    handleAvatarClick() {
+        if (this.responseAudio.src) {
+            if (this.responseAudio.paused) {
+                this.responseAudio.play().catch(e => {
+                    console.log('Playback failed:', e);
+                });
+            } else {
+                this.responseAudio.pause();
+            }
+        }
+    }
+    
+    handleRecordingError(error) {
+        let message = 'Could not access microphone.';
+        
+        if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            message = 'Microphone access denied. Please enable in settings.';
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+            message = 'No microphone found. Please check your device.';
+        } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+            message = 'Microphone is already in use by another app.';
+        }
+        
+        this.showError(message);
+        this.resetUI();
+    }
+    
+    showError(message) {
+        this.statusText.textContent = message;
+        this.statusText.classList.add('error');
+        
+        setTimeout(() => {
+            this.statusText.classList.remove('error');
+            this.resetUI();
+        }, 3000);
+    }
+    
+    resetUI() {
+        this.voiceBtn.classList.remove('recording', 'active');
+        this.btnText.textContent = 'Tap to Speak';
+        this.micIcon.textContent = '🎤';
+        this.statusText.textContent = 'Ready to help you relax';
+        this.statusIndicator.classList.remove('active');
+        this.aiAvatar.classList.remove('listening');
     }
 }
 
-function startRecording() {
-    if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
-        console.error('MediaRecorder not ready');
-        return;
+// Progressive Web App Support
+class PWAManager {
+    constructor() {
+        this.deferredPrompt = null;
+        this.init();
     }
     
-    try {
-        audioChunks = [];
-        mediaRecorder.start();
+    init() {
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            this.registerServiceWorker();
+        }
         
-        setState('recording');
-        updateStatus('Listening... Speak now', 'recording');
-        setAvatarState('listening');
-        
-        console.log('🎤 Recording started');
-        
-    } catch (error) {
-        console.error('Failed to start recording:', error);
-        showError('Failed to start recording');
-    }
-}
-
-function stopRecording() {
-    if (!mediaRecorder || mediaRecorder.state !== 'recording') {
-        console.error('MediaRecorder not recording');
-        return;
+        // Handle install prompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            this.deferredPrompt = e;
+            this.showInstallButton();
+        });
     }
     
-    try {
-        mediaRecorder.stop();
-        
-        setState('processing');
-        updateStatus('Processing your message...', 'processing');
-        setAvatarState('thinking');
-        
-        console.log('⏹️ Recording stopped');
-        
-    } catch (error) {
-        console.error('Failed to stop recording:', error);
-        showError('Failed to stop recording');
+    async registerServiceWorker() {
+        try {
+            await navigator.serviceWorker.register('/sw.js');
+            console.log('Service Worker registered');
+        } catch (error) {
+            console.log('Service Worker registration failed:', error);
+        }
+    }
+    
+    showInstallButton() {
+        // Implementation for install button if needed
     }
 }
 
-async function processRecording() {
-    console.log('🔄 Processing recording...');
+// Initialize Application
+document.addEventListener('DOMContentLoaded', () => {
+    // Create starfield
+    const starfield = new Starfield();
     
-    if (audioChunks.length === 0) {
-        showError('No audio recorded');
-        setState('idle');
-        return;
-    }
+    // Initialize voice assistant
+    const assistant = new VoiceAssistant();
     
-    const mimeType = mediaRecorder.mimeType || 'audio/webm';
-    const audioBlob = new Blob(audioChunks, { type: mimeType });
+    // Initialize PWA manager
+    const pwa = new PWAManager();
     
-    console.log('📦 Audio blob created:', {
-        size: audioBlob.size,
-        type: audioBlob.type
+    // Handle orientation changes
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            window.scrollTo(0, 0);
+        }, 100);
     });
     
-    const formData = new FormData();
-    const fileName = 'recording_' + Date.now() + '.webm';
-    formData.append('audio', audioBlob, fileName);
-    
-    if (sessionId) {
-        formData.append('session_id', sessionId);
-    }
-    
-    try {
-        console.log('📝 Transcribing audio...');
-        const transcriptionResponse = await fetch('/transcribe_audio', {
-            method: 'POST',
-            body: formData
+    // Performance optimization: Pause animations when not visible
+    document.addEventListener('visibilitychange', () => {
+        const stars = document.querySelectorAll('.star');
+        stars.forEach(star => {
+            star.style.animationPlayState = document.hidden ? 'paused' : 'running';
         });
-        
-        const transcriptionData = await transcriptionResponse.json();
-        console.log('📝 Transcription response:', transcriptionData);
-        
-        if (!transcriptionResponse.ok) {
-            throw new Error(transcriptionData.error || 'Transcription failed');
-        }
-        
-        if (transcriptionData.session_id) {
-            updateSession(transcriptionData.session_id);
-        }
-        
-        addMessage('user', transcriptionData.text);
-        
-        console.log('🤖 Processing with AI...');
-        const processResponse = await fetch('/process_message', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                message: transcriptionData.text,
-                session_id: sessionId,
-                generate_audio: true
-            })
-        });
-        
-        const processData = await processResponse.json();
-        console.log('🤖 AI response:', processData);
-        
-        if (!processResponse.ok) {
-            throw new Error(processData.error || 'AI processing failed');
-        }
-        
-        if (processData.session_id) {
-            updateSession(processData.session_id);
-        }
-        
-        addMessage('assistant', processData.text);
-        
-        if (processData.audio_url && elements.responseAudio) {
-            console.log('🔊 Playing audio response...');
-            elements.responseAudio.src = processData.audio_url;
-            try {
-                await elements.responseAudio.play();
-            } catch (playError) {
-                console.error('Audio play error:', playError);
-                setState('idle');
-                updateStatus('Ready to help you relax', 'idle');
-                setAvatarState('idle');
-            }
-        } else {
-            setState('idle');
-            updateStatus('Ready to help you relax', 'idle');
-            setAvatarState('idle');
-        }
-        
-    } catch (error) {
-        console.error('❌ Processing error:', error);
-        showError('Error: ' + error.message);
-        addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
-        setState('idle');
-        setAvatarState('idle');
-    }
-}
-
-// ========================================
-// Quick Actions
-// ========================================
-async function sendQuickMessage(action) {
-    const messages = {
-        meditation: 'Please guide me through a short meditation session.',
-        story: 'Can you tell me a relaxing bedtime story?',
-        breathing: 'Let us do some breathing exercises together.'
-    };
+    });
     
-    const message = messages[action];
-    if (!message) return;
-    
-    console.log('⚡ Quick action:', action);
-    
-    setState('processing');
-    updateStatus('Processing your request...', 'processing');
-    setAvatarState('thinking');
-    
-    addMessage('user', message);
-    
-    try {
-        const response = await fetch('/process_message', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                message: message,
-                session_id: sessionId,
-                generate_audio: true
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.error || 'Request failed');
-        }
-        
-        if (data.session_id) {
-            updateSession(data.session_id);
-        }
-        
-        addMessage('assistant', data.text);
-        
-        if (data.audio_url && elements.responseAudio) {
-            elements.responseAudio.src = data.audio_url;
-            try {
-                await elements.responseAudio.play();
-            } catch (playError) {
-                console.error('Audio play error:', playError);
-                setState('idle');
-                updateStatus('Ready to help you relax', 'idle');
-                setAvatarState('idle');
-            }
-        } else {
-            setState('idle');
-            updateStatus('Ready to help you relax', 'idle');
-            setAvatarState('idle');
-        }
-        
-    } catch (error) {
-        console.error('Quick action error:', error);
-        showError('Error: ' + error.message);
-        setState('idle');
-        setAvatarState('idle');
-    }
-}
-
-// ========================================
-// UI State Management
-// ========================================
-function setState(newState) {
-    currentState = newState;
-    updateVoiceButton();
-    console.log('🔄 State changed to:', newState);
-}
-
-function updateVoiceButton() {
-    if (!elements.voiceButton || !elements.micIcon || !elements.btnText) return;
-    
-    elements.voiceButton.className = 'voice-btn';
-    elements.voiceButton.classList.add(currentState);
-    
-    switch (currentState) {
-        case 'idle':
-            elements.micIcon.textContent = '🎤';
-            elements.btnText.textContent = 'Tap to Speak';
-            break;
-            
-        case 'recording':
-            elements.micIcon.textContent = '⏸️';
-            elements.btnText.textContent = 'Stop Recording';
-            break;
-            
-        case 'processing':
-            elements.micIcon.textContent = '⏳';
-            elements.btnText.textContent = 'Processing...';
-            break;
-            
-        case 'playing':
-            elements.micIcon.textContent = '⏸️';
-            elements.btnText.textContent = 'Pause';
-            break;
-    }
-}
-
-function updateStatus(message, type) {
-    if (elements.statusText) {
-        elements.statusText.textContent = message;
-    }
-    
-    if (elements.statusIndicator) {
-        elements.statusIndicator.className = 'status-indicator';
-        if (type) {
-            elements.statusIndicator.classList.add(type);
-        }
-    }
-    
-    console.log('📊 Status:', message, '(' + type + ')');
-}
-
-function setAvatarState(state) {
-    if (!elements.aiAvatar) return;
-    
-    elements.aiAvatar.classList.remove('listening', 'thinking', 'speaking', 'idle');
-    elements.aiAvatar.classList.add(state);
-    
-    console.log('👤 Avatar state:', state);
-}
-
-// ========================================
-// Conversation Management
-// ========================================
-function addMessage(sender, text) {
-    if (!elements.conversation) return;
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message ' + sender;
-    
-    const avatarDiv = document.createElement('div');
-    avatarDiv.className = 'avatar';
-    avatarDiv.textContent = sender === 'user' ? '👤' : '🌙';
-    
-    const textDiv = document.createElement('div');
-    textDiv.className = 'text';
-    textDiv.textContent = text;
-    
-    messageDiv.appendChild(avatarDiv);
-    messageDiv.appendChild(textDiv);
-    
-    elements.conversation.appendChild(messageDiv);
-    
-    elements.conversation.scrollTop = elements.conversation.scrollHeight;
-    
-    console.log('💬 Message added (' + sender + '):', text.substring(0, 50) + '...');
-}
-
-// ========================================
-// Session Management
-// ========================================
-function initializeSession() {
-    const urlParams = new URLSearchParams(window.location.search);
-    sessionId = urlParams.get('session_id') || localStorage.getItem('sleep_ai_session_id');
-    
-    if (sessionId) {
-        console.log('📝 Resuming session:', sessionId);
-    } else {
-        console.log('📝 New session will be created');
-    }
-}
-
-function updateSession(newSessionId) {
-    if (newSessionId && newSessionId !== sessionId) {
-        sessionId = newSessionId;
-        localStorage.setItem('sleep_ai_session_id', sessionId);
-        
-        const url = new URL(window.location);
-        url.searchParams.set('session_id', sessionId);
-        window.history.replaceState({}, '', url);
-        
-        console.log('📝 Session updated:', sessionId);
-    }
-}
-
-// ========================================
-// Error Handling & Notifications
-// ========================================
-function showError(message) {
-    console.error('❌ Error:', message);
-    
-    const notification = document.createElement('div');
-    notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 1rem 1.5rem; border-radius: 12px; font-size: 14px; font-weight: 500; z-index: 1000; max-width: 300px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); transform: translateX(100%); transition: transform 0.3s ease;';
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.style.transform = 'translateX(0)';
-    }, 100);
-    
-    setTimeout(() => {
-        notification.style.transform = 'translateX(100%)';
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-            }
-        }, 300);
-    }, 4000);
-}
-
-// ========================================
-// Cleanup
-// ========================================
-window.addEventListener('beforeunload', () => {
-    if (micStream) {
-        micStream.getTracks().forEach(track => track.stop());
-    }
-    if (elements.responseAudio) {
-        elements.responseAudio.pause();
-    }
-    console.log('🧹 Cleanup completed');
+    // Debug info
+    console.log('Sleep AI initialized', {
+        mobile: isMobile,
+        iOS: isIOS,
+        Android: isAndroid,
+        audioSupport: 'mediaDevices' in navigator
+    });
 });
 
-// Export for debugging
-window.sleepAssistant = {
-    currentState: currentState,
-    sessionId: sessionId,
-    micPermissionGranted: micPermissionGranted,
-    handleVoiceButtonClick: handleVoiceButtonClick,
-    sendQuickMessage: sendQuickMessage,
-    elements: elements
-};
+// Prevent zoom on double tap (iOS)
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 300) {
+        e.preventDefault();
+    }
+    lastTouchEnd = now;
+}, false);

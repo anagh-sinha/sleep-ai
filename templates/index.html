@@ -2,14 +2,520 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Somni - AI Sleep Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="icon" href="{{ url_for('static', filename='images/moon-icon.svg') }}" type="image/svg+xml">
-    <meta name="theme-color" content="#0f172a">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0e27;
+            --bg-secondary: #151a3a;
+            --text-primary: #e2e8ff;
+            --text-secondary: #8b95c9;
+            --accent: #6366f1;
+            --accent-hover: #7c7fff;
+            --glow: rgba(99, 102, 241, 0.3);
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Starry Background */
+        #starfield {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle var(--duration) ease-in-out infinite;
+            box-shadow: 0 0 var(--glow-size) rgba(255, 255, 255, 0.8);
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+
+        @keyframes shootingStar {
+            0% { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(300px, 300px) scale(0); opacity: 0; }
+        }
+
+        .shooting-star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: linear-gradient(45deg, transparent, white, transparent);
+            animation: shootingStar 3s linear;
+            box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+        }
+
+        /* App Container */
+        .app-container {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .app-header {
+            text-align: center;
+            margin-bottom: 40px;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .moon-icon {
+            font-size: 48px;
+            animation: float 6s ease-in-out infinite;
+            filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.5));
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .brand h1 {
+            font-size: 32px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #e2e8ff 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .brand p {
+            color: var(--text-secondary);
+            font-size: 16px;
+            max-width: 500px;
+            line-height: 1.6;
+        }
+
+        /* Main Interface */
+        .main-interface {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            animation: fadeIn 1s ease-out 0.3s both;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* AI Avatar */
+        .ai-avatar {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 20px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+
+        .ai-avatar:hover {
+            transform: scale(1.05);
+        }
+
+        .avatar-glow {
+            position: absolute;
+            inset: -20px;
+            background: radial-gradient(circle, var(--glow) 0%, transparent 70%);
+            animation: pulse 3s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.1); }
+        }
+
+        .moon-face {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #f3f4f6 0%, #d1d5db 100%);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.3),
+                        inset -10px -10px 20px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .ai-avatar.listening .moon-face {
+            background: linear-gradient(135deg, #ddd6fe 0%, #a78bfa 100%);
+            box-shadow: 0 0 60px var(--glow),
+                        inset -10px -10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .crater {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+        }
+
+        .crater-1 {
+            width: 20px;
+            height: 20px;
+            top: 30px;
+            left: 25px;
+        }
+
+        .crater-2 {
+            width: 15px;
+            height: 15px;
+            top: 50px;
+            right: 30px;
+        }
+
+        .crater-3 {
+            width: 25px;
+            height: 25px;
+            bottom: 25px;
+            left: 40px;
+        }
+
+        /* Status Section */
+        .status-section {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .status-text {
+            font-size: 18px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            margin: 0 auto;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .status-indicator.active {
+            animation: blink 1s ease-in-out infinite;
+            background: var(--warning);
+            box-shadow: 0 0 20px var(--warning);
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Voice Control */
+        .voice-control {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 32px;
+        }
+
+        .voice-btn {
+            background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+            border: none;
+            border-radius: 100px;
+            padding: 20px 40px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+            position: relative;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .voice-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .voice-btn:hover::before {
+            opacity: 1;
+        }
+
+        .voice-btn:active {
+            transform: scale(0.95);
+        }
+
+        .voice-btn.recording {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            animation: recordPulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes recordPulse {
+            0%, 100% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: 0 4px 40px rgba(239, 68, 68, 0.6); }
+        }
+
+        .btn-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+            position: relative;
+            z-index: 1;
+        }
+
+        .mic-icon {
+            font-size: 24px;
+            transition: transform 0.3s ease;
+        }
+
+        .voice-btn.recording .mic-icon {
+            animation: micShake 0.3s ease-in-out infinite;
+        }
+
+        @keyframes micShake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-2px); }
+            75% { transform: translateX(2px); }
+        }
+
+        /* Quick Actions */
+        .quick-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 32px;
+        }
+
+        .quick-btn {
+            background: var(--bg-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 12px 24px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .quick-btn:hover {
+            background: rgba(99, 102, 241, 0.2);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+        }
+
+        /* Conversation */
+        .conversation-container {
+            flex: 1;
+            background: rgba(21, 26, 58, 0.5);
+            border-radius: 20px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .conversation {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            animation: messageSlide 0.5s ease-out;
+        }
+
+        @keyframes messageSlide {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .message.assistant .avatar {
+            background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+        }
+
+        .message.user .avatar {
+            background: var(--bg-secondary);
+        }
+
+        .message .text {
+            background: var(--bg-secondary);
+            padding: 12px 16px;
+            border-radius: 16px;
+            max-width: 70%;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .message.user .text {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* Scrollbar */
+        .conversation-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .conversation-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+
+        .conversation-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        .conversation-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Loading Animation */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 8px 12px;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            animation: typing 1.4s ease-in-out infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(1); opacity: 0.5; }
+            40% { transform: scale(1.3); opacity: 1; }
+        }
+
+        /* Mobile Optimizations */
+        @media (max-width: 640px) {
+            .app-container {
+                padding: 16px;
+            }
+
+            .brand h1 {
+                font-size: 24px;
+            }
+
+            .brand p {
+                font-size: 14px;
+            }
+
+            .ai-avatar {
+                width: 100px;
+                height: 100px;
+            }
+
+            .voice-btn {
+                padding: 16px 32px;
+            }
+
+            .conversation-container {
+                padding: 16px;
+            }
+
+            .message .text {
+                max-width: 85%;
+            }
+        }
+
+        /* iOS Specific Fixes */
+        @supports (-webkit-touch-callout: none) {
+            .voice-btn {
+                -webkit-user-select: none;
+                touch-action: manipulation;
+            }
+            
+            body {
+                -webkit-touch-callout: none;
+                -webkit-user-select: none;
+            }
+        }
+    </style>
 </head>
 <body>
+    <!-- Starry Background -->
+    <div id="starfield"></div>
+
     <!-- Main Container -->
     <div class="app-container">
         <!-- Header -->
@@ -17,7 +523,7 @@
             <div class="brand">
                 <div class="moon-icon">🌙</div>
                 <h1>Naptick AI Sleep Assistant</h1>
-                <p>Your calming voice agent and personal guide to deeper, more restful sleep through understanding and improving your nightly patterns</p>
+                <p>Your calming voice personal guide to deeper, more restful sleep through understanding and improving your nightly patterns.</p>
             </div>
         </header>
 
@@ -71,6 +577,437 @@
     <!-- Audio Elements -->
     <audio id="responseAudio" preload="auto"></audio>
     
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Starfield Animation
+        function createStarfield() {
+            const starfield = document.getElementById('starfield');
+            const starCount = 150;
+            
+            for (let i = 0; i < starCount; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.width = Math.random() * 3 + 1 + 'px';
+                star.style.height = star.style.width;
+                star.style.setProperty('--duration', Math.random() * 3 + 2 + 's');
+                star.style.setProperty('--glow-size', Math.random() * 10 + 5 + 'px');
+                star.style.animationDelay = Math.random() * 5 + 's';
+                starfield.appendChild(star);
+            }
+            
+            // Shooting stars
+            setInterval(() => {
+                if (Math.random() > 0.7) {
+                    const shootingStar = document.createElement('div');
+                    shootingStar.className = 'shooting-star';
+                    shootingStar.style.left = Math.random() * 50 + '%';
+                    shootingStar.style.top = Math.random() * 50 + '%';
+                    starfield.appendChild(shootingStar);
+                    
+                    setTimeout(() => shootingStar.remove(), 3000);
+                }
+            }, 3000);
+        }
+
+        // Voice Assistant
+        class VoiceAssistant {
+            constructor() {
+                this.isRecording = false;
+                this.mediaRecorder = null;
+                this.audioChunks = [];
+                this.sessionId = this.getOrCreateSessionId();
+                this.stream = null;
+                
+                this.voiceBtn = document.getElementById('voiceButton');
+                this.btnText = document.getElementById('btnText');
+                this.micIcon = document.getElementById('micIcon');
+                this.statusText = document.getElementById('statusText');
+                this.statusIndicator = document.getElementById('statusIndicator');
+                this.conversation = document.getElementById('conversation');
+                this.aiAvatar = document.getElementById('aiAvatar');
+                this.responseAudio = document.getElementById('responseAudio');
+                
+                this.initializeEventListeners();
+                this.checkMicrophoneSupport();
+            }
+            
+            getOrCreateSessionId() {
+                let sessionId = localStorage.getItem('somni_session_id');
+                if (!sessionId) {
+                    sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+                    localStorage.setItem('somni_session_id', sessionId);
+                }
+                return sessionId;
+            }
+            
+            checkMicrophoneSupport() {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    this.showError('Your browser doesn\'t support audio recording. Please use a modern browser.');
+                    this.voiceBtn.disabled = true;
+                }
+            }
+            
+            initializeEventListeners() {
+                // Voice button - handle both click and touch events
+                this.voiceBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.toggleRecording();
+                });
+                
+                // Prevent iOS double-tap zoom
+                this.voiceBtn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.toggleRecording();
+                });
+                
+                // Quick action buttons
+                document.getElementById('meditationBtn').addEventListener('click', () => {
+                    this.sendQuickMessage('Guide me through a relaxing meditation');
+                });
+                
+                document.getElementById('storyBtn').addEventListener('click', () => {
+                    this.sendQuickMessage('Tell me a calming bedtime story');
+                });
+                
+                document.getElementById('breathingBtn').addEventListener('click', () => {
+                    this.sendQuickMessage('Lead me through a breathing exercise');
+                });
+                
+                // AI Avatar interaction
+                this.aiAvatar.addEventListener('click', () => {
+                    if (this.responseAudio.src && !this.responseAudio.paused) {
+                        this.responseAudio.pause();
+                    } else if (this.responseAudio.src) {
+                        this.responseAudio.play();
+                    }
+                });
+            }
+            
+            async toggleRecording() {
+                if (this.isRecording) {
+                    this.stopRecording();
+                } else {
+                    await this.startRecording();
+                }
+            }
+            
+            async startRecording() {
+                try {
+                    // Request microphone permission with iOS-compatible constraints
+                    const constraints = {
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 44100
+                        }
+                    };
+                    
+                    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    // Determine the best audio format
+                    const mimeTypes = [
+                        'audio/webm;codecs=opus',
+                        'audio/mp4',
+                        'audio/ogg;codecs=opus',
+                        'audio/wav',
+                        'audio/mpeg'
+                    ];
+                    
+                    let selectedMimeType = 'audio/webm';
+                    for (const mimeType of mimeTypes) {
+                        if (MediaRecorder.isTypeSupported(mimeType)) {
+                            selectedMimeType = mimeType;
+                            break;
+                        }
+                    }
+                    
+                    // Create MediaRecorder with proper options
+                    const options = {
+                        mimeType: selectedMimeType,
+                        audioBitsPerSecond: 128000
+                    };
+                    
+                    this.mediaRecorder = new MediaRecorder(this.stream, options);
+                    this.audioChunks = [];
+                    
+                    this.mediaRecorder.addEventListener('dataavailable', (event) => {
+                        if (event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    });
+                    
+                    this.mediaRecorder.addEventListener('stop', () => {
+                        this.processRecording();
+                    });
+                    
+                    this.mediaRecorder.start(100); // Collect data every 100ms
+                    this.isRecording = true;
+                    
+                    // Update UI
+                    this.voiceBtn.classList.add('recording');
+                    this.btnText.textContent = 'Listening...';
+                    this.micIcon.textContent = '🔴';
+                    this.statusText.textContent = 'Listening to you...';
+                    this.statusIndicator.classList.add('active');
+                    this.aiAvatar.classList.add('listening');
+                    
+                    // Vibrate on iOS if supported
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate(50);
+                    }
+                    
+                } catch (error) {
+                    console.error('Error starting recording:', error);
+                    this.showError('Could not access microphone. Please check permissions.');
+                    this.resetUI();
+                }
+            }
+            
+            stopRecording() {
+                if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                    this.mediaRecorder.stop();
+                    this.isRecording = false;
+                    
+                    // Stop all tracks
+                    if (this.stream) {
+                        this.stream.getTracks().forEach(track => track.stop());
+                        this.stream = null;
+                    }
+                    
+                    // Update UI
+                    this.voiceBtn.classList.remove('recording');
+                    this.btnText.textContent = 'Processing...';
+                    this.micIcon.textContent = '⏳';
+                    this.statusText.textContent = 'Processing your message...';
+                    this.aiAvatar.classList.remove('listening');
+                }
+            }
+            
+            async processRecording() {
+                if (this.audioChunks.length === 0) {
+                    this.showError('No audio recorded. Please try again.');
+                    this.resetUI();
+                    return;
+                }
+                
+                // Create blob with appropriate type
+                const audioBlob = new Blob(this.audioChunks, { 
+                    type: this.mediaRecorder.mimeType || 'audio/webm' 
+                });
+                
+                // Check if blob is valid
+                if (audioBlob.size === 0) {
+                    this.showError('Recording failed. Please try again.');
+                    this.resetUI();
+                    return;
+                }
+                
+                // Create form data
+                const formData = new FormData();
+                const filename = `recording_${Date.now()}.${this.getFileExtension(audioBlob.type)}`;
+                formData.append('audio', audioBlob, filename);
+                formData.append('session_id', this.sessionId);
+                
+                try {
+                    // Send to server
+                    const response = await fetch('/transcribe_audio', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success && data.text) {
+                        this.addMessage(data.text, 'user');
+                        this.processMessage(data.text);
+                    } else {
+                        throw new Error(data.error || 'Transcription failed');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error processing audio:', error);
+                    this.showError('Could not process audio. Please try again.');
+                    this.resetUI();
+                }
+            }
+            
+            getFileExtension(mimeType) {
+                const typeMap = {
+                    'audio/webm': 'webm',
+                    'audio/mp4': 'm4a',
+                    'audio/ogg': 'ogg',
+                    'audio/wav': 'wav',
+                    'audio/mpeg': 'mp3'
+                };
+                return typeMap[mimeType] || 'webm';
+            }
+            
+            async sendQuickMessage(message) {
+                this.addMessage(message, 'user');
+                await this.processMessage(message);
+            }
+            
+            async processMessage(message) {
+                this.statusText.textContent = 'Somni is thinking...';
+                this.addTypingIndicator();
+                
+                try {
+                    const response = await fetch('/process_message', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            session_id: this.sessionId,
+                            generate_audio: true
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    this.removeTypingIndicator();
+                    
+                    if (data.success && data.text) {
+                        this.addMessage(data.text, 'assistant');
+                        
+                        if (data.audio_url) {
+                            this.playAudioResponse(data.audio_url);
+                        }
+                        
+                        this.sessionId = data.session_id || this.sessionId;
+                    } else {
+                        throw new Error(data.error || 'Failed to get response');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                    this.removeTypingIndicator();
+                    this.showError('Could not get response. Please try again.');
+                }
+                
+                this.resetUI();
+            }
+            
+            addMessage(text, sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const avatar = document.createElement('div');
+                avatar.className = 'avatar';
+                avatar.textContent = sender === 'user' ? '👤' : '🌙';
+                
+                const textDiv = document.createElement('div');
+                textDiv.className = 'text';
+                textDiv.textContent = text;
+                
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(textDiv);
+                
+                this.conversation.appendChild(messageDiv);
+                this.conversation.scrollTop = this.conversation.scrollHeight;
+            }
+            
+            addTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'message assistant typing';
+                typingDiv.id = 'typingIndicator';
+                
+                const avatar = document.createElement('div');
+                avatar.className = 'avatar';
+                avatar.textContent = '🌙';
+                
+                const indicator = document.createElement('div');
+                indicator.className = 'typing-indicator';
+                indicator.innerHTML = '<span></span><span></span><span></span>';
+                
+                typingDiv.appendChild(avatar);
+                typingDiv.appendChild(indicator);
+                
+                this.conversation.appendChild(typingDiv);
+                this.conversation.scrollTop = this.conversation.scrollHeight;
+            }
+            
+            removeTypingIndicator() {
+                const indicator = document.getElementById('typingIndicator');
+                if (indicator) {
+                    indicator.remove();
+                }
+            }
+            
+            playAudioResponse(audioUrl) {
+                this.responseAudio.src = audioUrl;
+                this.responseAudio.play().catch(e => {
+                    console.log('Audio autoplay prevented:', e);
+                });
+            }
+            
+            showError(message) {
+                this.statusText.textContent = message;
+                this.statusText.style.color = 'var(--error)';
+                setTimeout(() => {
+                    this.statusText.style.color = '';
+                    this.resetUI();
+                }, 3000);
+            }
+            
+            resetUI() {
+                this.voiceBtn.classList.remove('recording');
+                this.btnText.textContent = 'Tap to Speak';
+                this.micIcon.textContent = '🎤';
+                this.statusText.textContent = 'Ready to help you relax';
+                this.statusIndicator.classList.remove('active');
+                this.aiAvatar.classList.remove('listening');
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            createStarfield();
+            const assistant = new VoiceAssistant();
+            
+            // Add interactive moon glow on touch/click
+            const aiAvatar = document.getElementById('aiAvatar');
+            aiAvatar.addEventListener('touchstart', () => {
+                aiAvatar.style.transform = 'scale(0.95)';
+            });
+            aiAvatar.addEventListener('touchend', () => {
+                aiAvatar.style.transform = 'scale(1)';
+            });
+            
+            // Prevent iOS bounce effect
+            document.body.addEventListener('touchmove', (e) => {
+                if (e.target === document.body) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+            
+            // Handle visibility change (for iOS audio issues)
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden && assistant.isRecording) {
+                    assistant.stopRecording();
+                }
+            });
+            
+            // Service worker for PWA capabilities
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js').catch(() => {
+                    console.log('Service worker registration failed');
+                });
+            }
+        });
+        
+        // Prevent zoom on double tap for iOS
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+    </script>
 </body>
 </html>

@@ -1,0 +1,79 @@
+{
+    "name": "Somni AI Sleep Assistant",
+    "short_name": "Somni",
+    "description": "Your personal AI-powered sleep assistant for better rest",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0e27",
+    "theme_color": "#6366f1",
+    "orientation": "portrait",
+    "scope": "/",
+    "icons": [
+      {
+        "src": "/static/images/icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png",
+        "purpose": "any maskable"
+      },
+      {
+        "src": "/static/images/icon-512.png",
+        "sizes": "512x512",
+        "type": "image/png",
+        "purpose": "any maskable"
+      },
+      {
+        "src": "/static/images/icon-144.png",
+        "sizes": "144x144",
+        "type": "image/png"
+      },
+      {
+        "src": "/static/images/icon-96.png",
+        "sizes": "96x96",
+        "type": "image/png"
+      },
+      {
+        "src": "/static/images/icon-72.png",
+        "sizes": "72x72",
+        "type": "image/png"
+      },
+      {
+        "src": "/static/images/icon-48.png",
+        "sizes": "48x48",
+        "type": "image/png"
+      }
+    ],
+    "screenshots": [
+      {
+        "src": "/static/images/screenshot-1.png",
+        "sizes": "1080x1920",
+        "type": "image/png",
+        "label": "Main interface with voice control"
+      },
+      {
+        "src": "/static/images/screenshot-2.png",
+        "sizes": "1080x1920",
+        "type": "image/png",
+        "label": "Conversation with AI assistant"
+      }
+    ],
+    "categories": ["health", "lifestyle", "medical"],
+    "lang": "en-US",
+    "dir": "ltr",
+    "prefer_related_applications": false,
+    "shortcuts": [
+      {
+        "name": "Start Meditation",
+        "short_name": "Meditate",
+        "description": "Begin a guided meditation session",
+        "url": "/?action=meditation",
+        "icons": [{ "src": "/static/images/meditation-icon.png", "sizes": "96x96" }]
+      },
+      {
+        "name": "Bedtime Story",
+        "short_name": "Story",
+        "description": "Listen to a calming bedtime story",
+        "url": "/?action=story",
+        "icons": [{ "src": "/static/images/story-icon.png", "sizes": "96x96" }]
+      }
+    ]
+  }
