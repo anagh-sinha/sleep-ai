@@ -1,267 +1,219 @@
-// Global variables
-let mediaRecorder;
+// ========================================
+// Core Sleep Assistant - Fixed & Tested
+// ========================================
+
+// Global Variables
+let mediaRecorder = null;
 let audioChunks = [];
-let isRecording = false;
-let audioBlob = null;
-let audioUrl = '';
-let audio = new Audio();
-let isPlaying = false;
-let currentState = 'idle'; // 'idle', 'recording', 'playing', 'paused'
+let currentState = 'idle';
 let sessionId = null;
-let conversationHistory = [];
+let micStream = null;
+let micPermissionGranted = false;
 
-// DOM elements
-let controlButton, statusElement, conversationElement, micPermissionGranted = false;
+// DOM Elements
+const elements = {};
 
-// Initialize audio context for better iOS compatibility
-const initializeAudioContext = () => {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (AudioContext) {
-        const audioContext = new AudioContext();
-        // Create empty buffer and play it to unlock audio on iOS
-        const buffer = audioContext.createBuffer(1, 1, 22050);
-        const source = audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioContext.destination);
-        source.start(0);
-        // Resume the audio context in case it was suspended
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-    }
-};
-
-// Initialize microphone access
-const initializeMicrophone = async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Audio recording is not supported in your browser.');
-    }
-
-    // Check if we're on iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    
-    // Use WebM with Opus codec for recording (widely supported)
-    // We'll convert to WAV before sending to the server
-    const mimeType = 'audio/webm;codecs=opus';
-    
-    // Prepare constraints
-    const constraints = {
-        audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 16000,
-            channelCount: 1, // Mono recording
-            // iOS specific constraints
-            ...(isIOS && {
-                mandatory: {
-                    googEchoCancellation: 'false',
-                    googAutoGainControl: 'false',
-                    googNoiseSuppression: 'false',
-                    googHighpassFilter: 'false'
-                },
-                optional: []
-            })
-        }
-    };
-
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        console.log('Successfully got media stream');
-        return { stream, mimeType };
-    } catch (error) {
-        console.error('Error accessing microphone:', error);
-        throw error;
-    }
-};
-
-// Set up media recorder with the provided stream
-function setupMediaRecorder(stream, mimeType) {
-    // Check if the requested MIME type is supported
-    const options = { mimeType };
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-        console.warn(`MIME type ${mimeType} not supported, using default`);
-        delete options.mimeType; // Let the browser choose a supported format
-    }
-    
-    mediaRecorder = new MediaRecorder(stream, options);
-    
-    mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-            audioChunks.push(e.data);
-        }
-    };
-
-    mediaRecorder.onstop = async () => {
-        // Use the same MIME type that was used for recording
-        const recordedMimeType = mediaRecorder.mimeType || 'audio/webm';
-        audioBlob = new Blob(audioChunks, { type: recordedMimeType });
-        audioUrl = URL.createObjectURL(audioBlob);
-
-        // Update UI to show processing state
-        updateButtonState('processing');
-        statusElement.textContent = 'Processing your request...';
-
-        try {
-            // Send the audio to the server for processing
-            await processAudio();
-            // After processing, switch to play state
-            updateButtonState('play');
-        } catch (error) {
-            console.error('Error processing audio:', error);
-            statusElement.textContent = 'Error processing your request. Please try again.';
-            updateButtonState('idle');
-        }
-    };
-}
-
-// Handle microphone errors
-function handleMicrophoneError(error) {
-    console.error('Microphone error:', error);
-    let errorMessage = 'Error accessing microphone';
-    
-    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        errorMessage = 'Microphone access was denied. Please allow microphone access in your browser settings.';
-    } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        errorMessage = 'No microphone found. Please check your device settings.';
-    } else if (error.name === 'NotReadableError') {
-        errorMessage = 'Microphone is already in use by another application.';
-    } else if (error.name === 'OverconstrainedError') {
-        errorMessage = 'The requested microphone configuration is not supported.';
-    } else if (error.name === 'SecurityError') {
-        errorMessage = 'Microphone access is not allowed in this context. Please use HTTPS.';
-    }
-    
-    statusElement.textContent = errorMessage;
-    updateButtonState('error');
-    
-    // Show a more prominent error message
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-message';
-    errorDiv.textContent = errorMessage;
-    errorDiv.style.cssText = 'color: #ff4444; margin-top: 10px; padding: 10px; border: 1px solid #ff4444; border-radius: 4px; background-color: #ffeeee;';
-    
-    // Insert after the record button
-    const buttonContainer = document.querySelector('.button-container');
-    if (buttonContainer) {
-        buttonContainer.appendChild(errorDiv);
-        
-        // Remove error message after 10 seconds
-        setTimeout(() => {
-            if (errorDiv.parentNode) {
-                errorDiv.remove();
-            }
-        }, 10000);
-    }
-}
-
+// ========================================
+// Initialization
+// ========================================
 document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize DOM elements
-    controlButton = document.getElementById('controlButton');
-    statusElement = document.getElementById('status');
-    conversationElement = document.getElementById('conversation');
+    console.log('🌙 Somni Sleep Assistant starting...');
     
-    // Initialize session
-    initializeSession();
-
-    // Initialize audio context on user interaction
-    document.body.addEventListener('touchstart', initializeAudioContext, { once: true });
-    document.body.addEventListener('touchend', initializeAudioContext, { once: true });
-    
-    // Show loading state
-    statusElement.textContent = 'Initializing microphone...';
-    controlButton.disabled = true;
-
     try {
-        // Initialize microphone
-        const { stream, mimeType } = await initializeMicrophone();
+        bindElements();
+        setupEventListeners();
+        initializeSession();
+        await initializeMicrophone();
+        console.log('✅ Somni ready!');
+    } catch (error) {
+        console.error('❌ Initialization error:', error);
+        showError('Failed to initialize app');
+    }
+});
+
+function bindElements() {
+    elements.voiceButton = document.getElementById('voiceButton');
+    elements.statusText = document.getElementById('statusText');
+    elements.statusIndicator = document.getElementById('statusIndicator');
+    elements.micIcon = document.getElementById('micIcon');
+    elements.btnText = document.getElementById('btnText');
+    elements.aiAvatar = document.getElementById('aiAvatar');
+    elements.conversation = document.getElementById('conversation');
+    elements.responseAudio = document.getElementById('responseAudio');
+    elements.meditationBtn = document.getElementById('meditationBtn');
+    elements.storyBtn = document.getElementById('storyBtn');
+    elements.breathingBtn = document.getElementById('breathingBtn');
+    
+    console.log('📌 DOM elements bound');
+}
+
+function setupEventListeners() {
+    // Voice button
+    if (elements.voiceButton) {
+        elements.voiceButton.addEventListener('click', handleVoiceButtonClick);
+    }
+    
+    // Quick action buttons
+    if (elements.meditationBtn) {
+        elements.meditationBtn.addEventListener('click', () => sendQuickMessage('meditation'));
+    }
+    if (elements.storyBtn) {
+        elements.storyBtn.addEventListener('click', () => sendQuickMessage('story'));
+    }
+    if (elements.breathingBtn) {
+        elements.breathingBtn.addEventListener('click', () => sendQuickMessage('breathing'));
+    }
+    
+    // Audio events
+    if (elements.responseAudio) {
+        elements.responseAudio.addEventListener('play', () => {
+            setState('playing');
+            updateStatus('Playing response...', 'playing');
+            setAvatarState('speaking');
+        });
+        
+        elements.responseAudio.addEventListener('ended', () => {
+            setState('idle');
+            updateStatus('Ready to help you relax', 'idle');
+            setAvatarState('idle');
+        });
+        
+        elements.responseAudio.addEventListener('error', (e) => {
+            console.error('Audio playback error:', e);
+            setState('idle');
+            updateStatus('Audio playback failed', 'idle');
+        });
+    }
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && !e.target.matches('input, textarea, button')) {
+            e.preventDefault();
+            handleVoiceButtonClick();
+        }
+    });
+    
+    console.log('🎧 Event listeners setup complete');
+}
+
+// ========================================
+// Microphone & Recording
+// ========================================
+async function initializeMicrophone() {
+    updateStatus('Requesting microphone access...', 'processing');
+    if (elements.voiceButton) {
+        elements.voiceButton.disabled = true;
+    }
+    
+    try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('Microphone access not supported in this browser');
+        }
+        
+        micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 16000
+            }
+        });
+        
+        setupMediaRecorder();
         micPermissionGranted = true;
         
-        // Set up media recorder
-        setupMediaRecorder(stream, mimeType);
+        updateStatus('Ready to help you relax', 'idle');
+        if (elements.voiceButton) {
+            elements.voiceButton.disabled = false;
+        }
         
-        // Enable the control button
-        controlButton.disabled = false;
-        statusElement.textContent = 'Tap the button to start speaking';
+        console.log('🎤 Microphone access granted');
+        
     } catch (error) {
         handleMicrophoneError(error);
     }
+}
 
-    // Set up audio element
-    const responseAudio = document.getElementById('responseAudio');
+function setupMediaRecorder() {
+    if (!micStream) return;
     
-    // Set up audio element events for the response audio
-    responseAudio.onplay = () => {
-        updateButtonState('playing');
-        statusElement.textContent = 'Playing...';
-    };
-
-    responseAudio.onpause = () => {
-        // Only update to paused state if we're not in the middle of another state change
-        if (currentState === 'playing') {
-            updateButtonState('paused');
-            statusElement.textContent = 'Paused';
+    let mimeType = 'audio/webm;codecs=opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/wav';
         }
-    };
-
-    responseAudio.onended = () => {
-        updateButtonState('idle');
-        statusElement.textContent = 'Tap the button to speak again';
-    };
-    
-    // Keep the global audio variable for any other audio needs
-    audio = responseAudio;
-
-    // Add click event listener for the control button
-    controlButton.addEventListener('click', handleControlButtonClick);
-});
-
-// Add event listeners for keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-    // Space bar to toggle recording/playback
-    if (e.code === 'Space' && !e.target.matches('input, textarea, button, select')) {
-        e.preventDefault();
-        handleControlButtonClick();
     }
-});
-
-// Initialize or retrieve user session
-async function initializeSession() {
+    
+    console.log('🎵 Using MIME type:', mimeType);
+    
     try {
-        // Try to get session ID from local storage or URL
-        const urlParams = new URLSearchParams(window.location.search);
-        sessionId = urlParams.get('session_id') || localStorage.getItem('sleep_ai_session_id');
+        mediaRecorder = new MediaRecorder(micStream, { mimeType });
         
-        // If no session ID exists, we'll get one from the server on first interaction
-        if (!sessionId) {
-            console.log('No existing session found. A new one will be created on first interaction.');
-        } else {
-            console.log('Resuming session:', sessionId);
-            // Load any existing conversation history from the server if needed
-            // await loadConversationHistory();
-        }
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+        
+        mediaRecorder.onstop = async () => {
+            await processRecording();
+        };
+        
+        mediaRecorder.onerror = (event) => {
+            console.error('MediaRecorder error:', event.error);
+            showError('Recording error occurred');
+            setState('idle');
+        };
+        
+        console.log('📼 MediaRecorder setup complete');
+        
     } catch (error) {
-        console.error('Error initializing session:', error);
+        console.error('MediaRecorder setup failed:', error);
+        showError('Recording setup failed');
     }
 }
 
-// Update the session ID and save it
-function updateSession(newSessionId) {
-    if (newSessionId && newSessionId !== sessionId) {
-        sessionId = newSessionId;
-        localStorage.setItem('sleep_ai_session_id', sessionId);
-        
-        // Update URL without page reload
-        const url = new URL(window.location);
-        url.searchParams.set('session_id', sessionId);
-        window.history.replaceState({}, '', url);
-        
-        console.log('Updated session ID:', sessionId);
+function handleMicrophoneError(error) {
+    console.error('🚫 Microphone error:', error);
+    
+    let errorMessage = 'Microphone access failed';
+    
+    switch (error.name) {
+        case 'NotAllowedError':
+        case 'PermissionDeniedError':
+            errorMessage = 'Please allow microphone access to use voice features';
+            break;
+        case 'NotFoundError':
+        case 'DevicesNotFoundError':
+            errorMessage = 'No microphone found. Please check your device';
+            break;
+        case 'NotReadableError':
+            errorMessage = 'Microphone is being used by another application';
+            break;
+        case 'SecurityError':
+            errorMessage = 'Microphone access requires HTTPS connection';
+            break;
     }
+    
+    updateStatus(errorMessage, 'error');
+    if (elements.voiceButton) {
+        elements.voiceButton.disabled = true;
+    }
+    showError(errorMessage);
 }
 
-// Handle control button click
-function handleControlButtonClick() {
+// ========================================
+// Voice Control Logic
+// ========================================
+function handleVoiceButtonClick() {
+    console.log('🎯 Voice button clicked, current state:', currentState);
+    
+    if (!micPermissionGranted) {
+        showError('Microphone access required');
+        return;
+    }
+    
     switch (currentState) {
         case 'idle':
             startRecording();
@@ -270,13 +222,9 @@ function handleControlButtonClick() {
             stopRecording();
             break;
         case 'playing':
-            pauseAudio();
-            break;
-        case 'paused':
-            resumeAudio();
-            break;
-        case 'play':
-            playAudio();
+            if (elements.responseAudio) {
+                elements.responseAudio.pause();
+            }
             break;
         case 'processing':
             // Do nothing while processing
@@ -284,376 +232,377 @@ function handleControlButtonClick() {
     }
 }
 
-// Start audio recording
 function startRecording() {
-    audioChunks = [];
-    mediaRecorder.start();
-    isRecording = true;
-    updateButtonState('recording');
-    statusElement.textContent = 'Listening...';
+    if (!mediaRecorder || mediaRecorder.state !== 'inactive') {
+        console.error('MediaRecorder not ready');
+        return;
+    }
+    
+    try {
+        audioChunks = [];
+        mediaRecorder.start();
+        
+        setState('recording');
+        updateStatus('Listening... Speak now', 'recording');
+        setAvatarState('listening');
+        
+        console.log('🎤 Recording started');
+        
+    } catch (error) {
+        console.error('Failed to start recording:', error);
+        showError('Failed to start recording');
+    }
 }
 
-// Stop audio recording
 function stopRecording() {
-    if (!isRecording) return;
-
-    mediaRecorder.stop();
-    isRecording = false;
-    updateButtonState('processing');
-    statusElement.textContent = 'Processing...';
-}
-
-// Pause audio playback
-function pauseAudio() {
-    const responseAudio = document.getElementById('responseAudio');
-    if (!responseAudio.paused) {
-        responseAudio.pause();
-        updateButtonState('paused');
-        statusElement.textContent = 'Paused';
+    if (!mediaRecorder || mediaRecorder.state !== 'recording') {
+        console.error('MediaRecorder not recording');
+        return;
+    }
+    
+    try {
+        mediaRecorder.stop();
+        
+        setState('processing');
+        updateStatus('Processing your message...', 'processing');
+        setAvatarState('thinking');
+        
+        console.log('⏹️ Recording stopped');
+        
+    } catch (error) {
+        console.error('Failed to stop recording:', error);
+        showError('Failed to stop recording');
     }
 }
 
-// Resume audio playback
-function resumeAudio() {
-    const responseAudio = document.getElementById('responseAudio');
-    responseAudio.play().then(() => {
-        updateButtonState('playing');
-        statusElement.textContent = 'Playing...';
-    }).catch(e => {
-        console.error('Error resuming audio:', e);
-        updateButtonState('play');
+async function processRecording() {
+    console.log('🔄 Processing recording...');
+    
+    if (audioChunks.length === 0) {
+        showError('No audio recorded');
+        setState('idle');
+        return;
+    }
+    
+    const mimeType = mediaRecorder.mimeType || 'audio/webm';
+    const audioBlob = new Blob(audioChunks, { type: mimeType });
+    
+    console.log('📦 Audio blob created:', {
+        size: audioBlob.size,
+        type: audioBlob.type
     });
-}
-
-// Play audio response
-function playAudio() {
-    const responseAudio = document.getElementById('responseAudio');
-    if (!responseAudio.src) {
-        console.error('No audio source to play');
-        return;
-    }
-    
-    responseAudio.play().then(() => {
-        updateButtonState('playing');
-        statusElement.textContent = 'Playing...';
-    }).catch(e => {
-        console.error('Playback failed:', e);
-        statusElement.textContent = 'Playback failed. Tap to try again.';
-        updateButtonState('play');
-    });
-}
-
-// Update button UI based on current state
-function updateButtonState(state) {
-    currentState = state;
-    const buttonText = controlButton.querySelector('.button-text');
-    const micIcon = controlButton.querySelector('.mic-icon');
-    
-    if (!buttonText || !micIcon) {
-        console.error('Button elements not found');
-        return;
-    }
-    
-    // Reset all classes first
-    controlButton.className = 'control-button';
-    controlButton.classList.add(state);
-    
-    // Update button content based on state
-    switch (state) {
-        case 'idle':
-            buttonText.textContent = 'Tap to Speak';
-            micIcon.innerHTML = `
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                <line x1="12" x2="12" y1="19" y2="22"></line>
-            `;
-            break;
-            
-        case 'recording':
-            buttonText.textContent = 'Listening...';
-            micIcon.innerHTML = `
-                <circle cx="12" cy="12" r="3"></circle>
-                <circle cx="12" cy="12" r="10" style="fill:none"></circle>
-            `;
-            break;
-            
-        case 'playing':
-            buttonText.textContent = 'Now Playing';
-            micIcon.innerHTML = `
-                <path d="M5 4v7h6V4H5z"></path>
-                <path d="M19 4v7h-6V4h6z"></path>
-            `;
-            break;
-            
-        case 'paused':
-            buttonText.textContent = 'Paused';
-            micIcon.innerHTML = `
-                <path d="M5 4h6v7H5V4z"></path>
-                <path d="M19 4h-6v7h6V4z"></path>
-            `;
-            break;
-            
-        case 'play':
-            buttonText.textContent = 'Play Response';
-            micIcon.innerHTML = `
-                <path d="M5 4v7h6V4H5z"></path>
-                <path d="M19 4v7h-6V4h6z"></path>
-            `;
-            break;
-            
-        case 'processing':
-            buttonText.textContent = 'Processing...';
-            micIcon.innerHTML = `
-                <circle cx="12" cy="12" r="10"></circle>
-                <path d="M12 6v6l4 2"></path>
-            `;
-            break;
-    }
-}
-
-// Process audio recording
-async function processAudio() {
-    if (!audioBlob) {
-        console.error('No audio data to process');
-        statusElement.textContent = 'Error: No audio recorded';
-        updateButtonState('idle');
-        return;
-    }
     
     const formData = new FormData();
+    const fileName = 'recording_' + Date.now() + '.webm';
+    formData.append('audio', audioBlob, fileName);
     
-    // Always use WAV format for maximum compatibility
-    const fileName = `recording_${Date.now()}.wav`;
-    
-    // Convert the blob to WAV format if it's not already
-    let audioBlobToSend = audioBlob;
-    if (!audioBlob.type.includes('wav')) {
-        try {
-            // Convert the blob to WAV format
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            
-            // Convert to WAV
-            const wavBlob = await audioBufferToWav(audioBuffer);
-            audioBlobToSend = new Blob([wavBlob], { type: 'audio/wav' });
-        } catch (error) {
-            console.error('Error converting audio to WAV:', error);
-            // Fall back to original blob if conversion fails
-        }
-    }
-    
-    formData.append('audio', audioBlobToSend, fileName);
     if (sessionId) {
         formData.append('session_id', sessionId);
     }
     
-    // Debug logging
-    console.log('Audio Blob Info:', {
-        size: audioBlob.size,
-        type: audioBlob.type,
-        fileName: fileName
-    });
-    
-    // Log form data keys (won't show file contents)
-    for (let pair of formData.entries()) {
-        console.log(pair[0] + ': ' + (pair[1] instanceof Blob ? 
-            `[Blob, size=${pair[1].size}, type=${pair[1].type}]` : pair[1]));
-    }
-
     try {
-        // Show processing state
-        updateButtonState('processing');
-        statusElement.textContent = 'Processing your message...';
-        
-        // First, transcribe the audio
-        const response = await fetch('/transcribe_audio', {
+        console.log('📝 Transcribing audio...');
+        const transcriptionResponse = await fetch('/transcribe_audio', {
             method: 'POST',
-            body: formData,
-            headers: {
-                'Accept': 'application/json'  // Ensure we expect JSON back
-            }
+            body: formData
         });
-
-        // Clone the response to read it multiple times if needed
-        const responseClone = response.clone();
-        let data;
         
-        try {
-            const responseData = await response.json();
-            
-            if (!response.ok) {
-                console.error('Server error details:', responseData);
-                throw new Error(responseData.error || `Failed to transcribe audio (${response.status})`);
+        const transcriptionData = await transcriptionResponse.json();
+        console.log('📝 Transcription response:', transcriptionData);
+        
+        if (!transcriptionResponse.ok) {
+            throw new Error(transcriptionData.error || 'Transcription failed');
+        }
+        
+        if (transcriptionData.session_id) {
+            updateSession(transcriptionData.session_id);
+        }
+        
+        addMessage('user', transcriptionData.text);
+        
+        console.log('🤖 Processing with AI...');
+        const processResponse = await fetch('/process_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: transcriptionData.text,
+                session_id: sessionId,
+                generate_audio: true
+            })
+        });
+        
+        const processData = await processResponse.json();
+        console.log('🤖 AI response:', processData);
+        
+        if (!processResponse.ok) {
+            throw new Error(processData.error || 'AI processing failed');
+        }
+        
+        if (processData.session_id) {
+            updateSession(processData.session_id);
+        }
+        
+        addMessage('assistant', processData.text);
+        
+        if (processData.audio_url && elements.responseAudio) {
+            console.log('🔊 Playing audio response...');
+            elements.responseAudio.src = processData.audio_url;
+            try {
+                await elements.responseAudio.play();
+            } catch (playError) {
+                console.error('Audio play error:', playError);
+                setState('idle');
+                updateStatus('Ready to help you relax', 'idle');
+                setAvatarState('idle');
             }
-            
-            // If we get here, the response was successful
-            data = responseData;
-            
-            // Update session if we got a new one
-            if (data.session_id) {
-                updateSession(data.session_id);
-            }
-
-            // Add user message to conversation
-            addMessage('user', data.text);
-            
-            // Process the message with the backend
-            const processResponse = await fetch('/process_message', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: data.text,
-                    session_id: sessionId,
-                    generate_audio: true
-                })
-            });
-
-            if (!processResponse.ok) {
-                throw new Error('Error processing message');
-            }
-
-            const processData = await processResponse.json();
-            
-            // Update session again in case it changed during processing
-            if (processData.session_id) {
-                updateSession(processData.session_id);
-            }
-
-            // Add assistant's response to conversation
-            addMessage('assistant', processData.text);
-
-            // Play the audio response if available
-            if (processData.audio_url) {
-                const responseAudio = document.getElementById('responseAudio');
-                responseAudio.src = processData.audio_url;
-                responseAudio.play().catch(e => {
-                    console.error('Error playing audio:', e);
-                    updateButtonState('play');
-                });
-            } else {
-                updateButtonState('idle');
-            }
-            
-            // Update status
-            statusElement.textContent = 'Tap to speak again';
-            
-        } catch (error) {
-            console.error('Error processing response:', error);
-            // If we have a clone of the response, try to use it for error details
-            if (responseClone) {
-                try {
-                    const errorData = await responseClone.json();
-                    console.error('Response error details:', errorData);
-                } catch (e) {
-                    console.error('Could not parse error response:', e);
-                }
-            }
-            throw error; // Re-throw to be caught by the outer catch
+        } else {
+            setState('idle');
+            updateStatus('Ready to help you relax', 'idle');
+            setAvatarState('idle');
         }
         
     } catch (error) {
-        console.error('Error:', error);
-        statusElement.textContent = 'Error: ' + (error.message || 'Failed to process your request');
-        updateButtonState('idle');
-        
-        // Add error message to conversation
+        console.error('❌ Processing error:', error);
+        showError('Error: ' + error.message);
         addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
+        setState('idle');
+        setAvatarState('idle');
     }
 }
 
-// Convert AudioBuffer to WAV format
-function audioBufferToWav(audioBuffer) {
-    const numChannels = audioBuffer.numberOfChannels;
-    const sampleRate = audioBuffer.sampleRate;
-    const format = 3; // Float32
-    const bitDepth = 32;
+// ========================================
+// Quick Actions
+// ========================================
+async function sendQuickMessage(action) {
+    const messages = {
+        meditation: 'Please guide me through a short meditation session.',
+        story: 'Can you tell me a relaxing bedtime story?',
+        breathing: 'Let us do some breathing exercises together.'
+    };
     
-    const bytesPerSample = bitDepth / 8;
-    const blockAlign = numChannels * bytesPerSample;
+    const message = messages[action];
+    if (!message) return;
     
-    // Create buffer for WAV header
-    const buffer = new ArrayBuffer(44 + audioBuffer.length * numChannels * bytesPerSample);
-    const view = new DataView(buffer);
+    console.log('⚡ Quick action:', action);
     
-    // Write WAV header
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + audioBuffer.length * numChannels * bytesPerSample, true);
-    writeString(view, 8, 'WAVE');
+    setState('processing');
+    updateStatus('Processing your request...', 'processing');
+    setAvatarState('thinking');
     
-    // Write format chunk
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true); // Subchunk1Size
-    view.setUint16(20, format, true); // AudioFormat (3 = float)
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * blockAlign, true); // ByteRate
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitDepth, true);
+    addMessage('user', message);
     
-    // Write data chunk
-    writeString(view, 36, 'data');
-    view.setUint32(40, audioBuffer.length * numChannels * bytesPerSample, true);
+    try {
+        const response = await fetch('/process_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message,
+                session_id: sessionId,
+                generate_audio: true
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Request failed');
+        }
+        
+        if (data.session_id) {
+            updateSession(data.session_id);
+        }
+        
+        addMessage('assistant', data.text);
+        
+        if (data.audio_url && elements.responseAudio) {
+            elements.responseAudio.src = data.audio_url;
+            try {
+                await elements.responseAudio.play();
+            } catch (playError) {
+                console.error('Audio play error:', playError);
+                setState('idle');
+                updateStatus('Ready to help you relax', 'idle');
+                setAvatarState('idle');
+            }
+        } else {
+            setState('idle');
+            updateStatus('Ready to help you relax', 'idle');
+            setAvatarState('idle');
+        }
+        
+    } catch (error) {
+        console.error('Quick action error:', error);
+        showError('Error: ' + error.message);
+        setState('idle');
+        setAvatarState('idle');
+    }
+}
+
+// ========================================
+// UI State Management
+// ========================================
+function setState(newState) {
+    currentState = newState;
+    updateVoiceButton();
+    console.log('🔄 State changed to:', newState);
+}
+
+function updateVoiceButton() {
+    if (!elements.voiceButton || !elements.micIcon || !elements.btnText) return;
     
-    // Write audio data
-    const offset = 44;
-    const channels = [];
+    elements.voiceButton.className = 'voice-btn';
+    elements.voiceButton.classList.add(currentState);
     
-    for (let i = 0; i < numChannels; i++) {
-        channels.push(audioBuffer.getChannelData(i));
+    switch (currentState) {
+        case 'idle':
+            elements.micIcon.textContent = '🎤';
+            elements.btnText.textContent = 'Tap to Speak';
+            break;
+            
+        case 'recording':
+            elements.micIcon.textContent = '⏸️';
+            elements.btnText.textContent = 'Stop Recording';
+            break;
+            
+        case 'processing':
+            elements.micIcon.textContent = '⏳';
+            elements.btnText.textContent = 'Processing...';
+            break;
+            
+        case 'playing':
+            elements.micIcon.textContent = '⏸️';
+            elements.btnText.textContent = 'Pause';
+            break;
+    }
+}
+
+function updateStatus(message, type) {
+    if (elements.statusText) {
+        elements.statusText.textContent = message;
     }
     
-    for (let i = 0; i < audioBuffer.length; i++) {
-        for (let channel = 0; channel < numChannels; channel++) {
-            const sample = Math.max(-1, Math.min(1, channels[channel][i]));
-            view.setFloat32(offset + (i * numChannels + channel) * bytesPerSample, sample, true);
+    if (elements.statusIndicator) {
+        elements.statusIndicator.className = 'status-indicator';
+        if (type) {
+            elements.statusIndicator.classList.add(type);
         }
     }
     
-    return new DataView(buffer);
+    console.log('📊 Status:', message, '(' + type + ')');
 }
 
-// Helper function to write string to DataView
-function writeString(view, offset, string) {
-    for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-    }
+function setAvatarState(state) {
+    if (!elements.aiAvatar) return;
+    
+    elements.aiAvatar.classList.remove('listening', 'thinking', 'speaking', 'idle');
+    elements.aiAvatar.classList.add(state);
+    
+    console.log('👤 Avatar state:', state);
 }
 
-// Add a message to the conversation
+// ========================================
+// Conversation Management
+// ========================================
 function addMessage(sender, text) {
-    if (!conversationElement) {
-        console.error('Conversation element not found');
-        return null;
-    }
+    if (!elements.conversation) return;
     
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${sender}`;
+    messageDiv.className = 'message ' + sender;
     
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content';
-    contentDiv.textContent = text;
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'avatar';
+    avatarDiv.textContent = sender === 'user' ? '👤' : '🌙';
     
-    messageDiv.appendChild(contentDiv);
-    conversationElement.appendChild(messageDiv);
+    const textDiv = document.createElement('div');
+    textDiv.className = 'text';
+    textDiv.textContent = text;
     
-    // Scroll to bottom
-    conversationElement.scrollTop = conversationElement.scrollHeight;
+    messageDiv.appendChild(avatarDiv);
+    messageDiv.appendChild(textDiv);
     
-    return messageDiv; // Return the message element so it can be updated later
+    elements.conversation.appendChild(messageDiv);
+    
+    elements.conversation.scrollTop = elements.conversation.scrollHeight;
+    
+    console.log('💬 Message added (' + sender + '):', text.substring(0, 50) + '...');
 }
 
-// Update an existing message
-function updateMessage(messageElement, newText) {
-    if (!messageElement) return;
+// ========================================
+// Session Management
+// ========================================
+function initializeSession() {
+    const urlParams = new URLSearchParams(window.location.search);
+    sessionId = urlParams.get('session_id') || localStorage.getItem('sleep_ai_session_id');
     
-    const contentDiv = messageElement.querySelector('.message-content');
-    if (contentDiv) {
-        contentDiv.textContent = newText;
-        if (conversationElement) {
-            conversationElement.scrollTop = conversationElement.scrollHeight;
-        }
+    if (sessionId) {
+        console.log('📝 Resuming session:', sessionId);
+    } else {
+        console.log('📝 New session will be created');
     }
 }
+
+function updateSession(newSessionId) {
+    if (newSessionId && newSessionId !== sessionId) {
+        sessionId = newSessionId;
+        localStorage.setItem('sleep_ai_session_id', sessionId);
+        
+        const url = new URL(window.location);
+        url.searchParams.set('session_id', sessionId);
+        window.history.replaceState({}, '', url);
+        
+        console.log('📝 Session updated:', sessionId);
+    }
+}
+
+// ========================================
+// Error Handling & Notifications
+// ========================================
+function showError(message) {
+    console.error('❌ Error:', message);
+    
+    const notification = document.createElement('div');
+    notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 1rem 1.5rem; border-radius: 12px; font-size: 14px; font-weight: 500; z-index: 1000; max-width: 300px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); transform: translateX(100%); transition: transform 0.3s ease;';
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 100);
+    
+    setTimeout(() => {
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 300);
+    }, 4000);
+}
+
+// ========================================
+// Cleanup
+// ========================================
+window.addEventListener('beforeunload', () => {
+    if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+    }
+    if (elements.responseAudio) {
+        elements.responseAudio.pause();
+    }
+    console.log('🧹 Cleanup completed');
+});
+
+// Export for debugging
+window.sleepAssistant = {
+    currentState: currentState,
+    sessionId: sessionId,
+    micPermissionGranted: micPermissionGranted,
+    handleVoiceButtonClick: handleVoiceButtonClick,
+    sendQuickMessage: sendQuickMessage,
+    elements: elements
+};

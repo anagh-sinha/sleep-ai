@@ -3,47 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sleep Assistant</title>
+    <title>Somni - AI Sleep Assistant</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', filename='images/moon-icon.svg') }}" type="image/svg+xml">
+    <meta name="theme-color" content="#0f172a">
 </head>
 <body>
-    <div class="container">
-        <div class="assistant-container">
-            <div class="moon">
-                <div class="crater"></div>
-                <div class="crater"></div>
-                <div class="crater"></div>
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="moon-icon">🌙</div>
+                <h1>Somni</h1>
+                <p>Your AI Sleep Assistant</p>
             </div>
-            <h1>Naptick Sleep Assistant</h1>
-            <p class="subtitle">Your calming voice agent and personal guide to deeper, more restful sleep through understanding and improving your nightly patterns.</p>
-            
-            <div class="status" id="status">Click the microphone to start talking</div>
-            
-            <div class="controls">
-                <button id="controlButton" class="control-button">
-                    <div class="button-content">
-                        <svg class="mic-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                            <line x1="12" x2="12" y1="19" y2="22"></line>
-                        </svg>
-                        <span class="button-text">Tap to Speak</span>
+        </header>
+
+        <!-- Main Interface -->
+        <main class="main-interface">
+            <!-- AI Avatar -->
+            <div class="ai-avatar" id="aiAvatar">
+                <div class="avatar-glow"></div>
+                <div class="moon-face">
+                    <div class="crater crater-1"></div>
+                    <div class="crater crater-2"></div>
+                    <div class="crater crater-3"></div>
+                </div>
+            </div>
+
+            <!-- Status -->
+            <div class="status-section">
+                <div class="status-text" id="statusText">Ready to help you relax</div>
+                <div class="status-indicator" id="statusIndicator"></div>
+            </div>
+
+            <!-- Voice Control -->
+            <div class="voice-control">
+                <button id="voiceButton" class="voice-btn">
+                    <div class="btn-content">
+                        <div class="mic-icon" id="micIcon">🎤</div>
+                        <span id="btnText">Tap to Speak</span>
                     </div>
                 </button>
             </div>
-            
-            <div class="conversation" id="conversation">
-                <div class="message assistant">
-                    <div class="message-content">
-                        Hello! I'm your friendly sleep assistant. How can I help you relax tonight?
+
+            <!-- Quick Actions -->
+            <div class="quick-actions">
+                <button class="quick-btn" id="meditationBtn">🧘 Meditation</button>
+                <button class="quick-btn" id="storyBtn">📖 Story</button>
+                <button class="quick-btn" id="breathingBtn">💨 Breathing</button>
+            </div>
+
+            <!-- Conversation -->
+            <div class="conversation-container">
+                <div class="conversation" id="conversation">
+                    <div class="message assistant">
+                        <div class="avatar">🌙</div>
+                        <div class="text">Hello! I'm Somni, your sleep assistant. How can I help you relax tonight?</div>
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
-    
+
+    <!-- Audio Elements -->
     <audio id="responseAudio" preload="auto"></audio>
+    
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

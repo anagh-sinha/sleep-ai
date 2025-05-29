@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(pip3 list:*)",
+      "Bash(rm:*)"
+    ],
+    "deny": []
+  }
+}
