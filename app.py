@@ -26,9 +26,9 @@ def after_request(response):
 # Configure OpenAI client
 try:
     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    print("✅ OpenAI client initialized successfully")
+    print("[OK] OpenAI client initialized successfully")
 except Exception as e:
-    print(f"❌ OpenAI client initialization failed: {e}")
+    print(f"[ERROR] OpenAI client initialization failed: {e}")
     client = None
 
 # In-memory storage for sessions (replace with database in production)
@@ -84,9 +84,9 @@ Remember: You're here to help users wind down and prepare for restful sleep."""
                 }
             ]
         )
-        print(f"🆕 Created new session: {session_id}")
+        print(f"[NEW] Created new session: {session_id}")
     else:
-        print(f"♻️ Resuming existing session: {session_id}")
+        print(f"[RESUME] Resuming existing session: {session_id}")
     
     # Update last active time
     user_sessions[session_id].last_active = datetime.now().isoformat()
@@ -109,13 +109,13 @@ def update_conversation(session_id, role, content):
 @app.route('/')
 def home():
     """Main page"""
-    print("🏠 Home page requested")
+    print(f"[PAGE] Home page requested")
     return render_template('index.html')
 
 @app.route('/transcribe_audio', methods=['POST'])
 def transcribe_audio():
     """Transcribe uploaded audio file"""
-    print("🎤 Audio transcription requested")
+    print(f"[AUDIO] Audio transcription requested")
     
     if not client:
         return jsonify({'error': 'OpenAI client not available', 'success': False}), 500
@@ -124,7 +124,7 @@ def transcribe_audio():
     try:
         # Get session ID from form data
         session_id = request.form.get('session_id')
-        print(f"📝 Session ID: {session_id}")
+        print(f"[SESSION] Session ID: {session_id}")
         
         # Get or create session
         user_session, session_id = get_or_create_session(session_id)
@@ -137,51 +137,101 @@ def transcribe_audio():
         if not audio_file.filename:
             return jsonify({'error': 'No audio file selected', 'success': False}), 400
         
-        # Validate file extension
-        file_ext = os.path.splitext(audio_file.filename)[1].lower()
-        if file_ext not in ['.wav', '.webm', '.mp3', '.m4a', '.ogg']:
-            return jsonify({'error': 'Unsupported audio format', 'success': False}), 400
+        # Get content type and file extension
+        content_type = audio_file.content_type
+        original_ext = os.path.splitext(audio_file.filename)[1].lower()
         
-        # Save audio file temporarily
-        audio_path = f'temp_audio_{session_id}{file_ext}'
+        # Validate and fix file extension if needed
+        valid_extensions = ['.wav', '.webm', '.mp3', '.m4a', '.ogg', '.mpeg', '.mpga', '.mp4', '.oga', '.flac']
+        
+        # Map MIME types to extensions for OpenAI compatibility
+        mime_to_ext = {
+            'audio/webm': '.webm',
+            'audio/mp4': '.m4a',
+            'audio/mpeg': '.mp3',
+            'audio/mp3': '.mp3',
+            'audio/ogg': '.ogg',
+            'audio/wav': '.wav',
+            'audio/wave': '.wav',
+            'audio/x-wav': '.wav',
+            'audio/flac': '.flac',
+            'audio/x-flac': '.flac',
+        }
+        
+        # Determine the best extension based on content type and original extension
+        if content_type and content_type in mime_to_ext:
+            file_ext = mime_to_ext[content_type]
+            print(f"Using extension {file_ext} based on content type {content_type}")
+        elif original_ext in valid_extensions:
+            file_ext = original_ext
+            print(f"Using original extension {file_ext}")
+        else:
+            # Default fallback extension
+            file_ext = '.webm'  # Most common format from browsers
+            print(f"Using default extension {file_ext} (original: {original_ext}, content-type: {content_type})")
+        
+        # Save audio file temporarily with appropriate extension
+        timestamp = int(time.time())
+        audio_path = f'temp_audio_{session_id}_{timestamp}{file_ext}'
         audio_file.save(audio_path)
         
         # Check file size (Whisper API has 25MB limit)
         file_size = os.path.getsize(audio_path)
         if file_size > 25 * 1024 * 1024:
             return jsonify({'error': 'File too large (max 25MB)', 'success': False}), 400
+        elif file_size < 100:
+            return jsonify({'error': 'Audio file too small or empty', 'success': False}), 400
         
-        print(f"💾 Saved audio file: {audio_path} ({file_size} bytes)")
+        print(f"[SAVE] Saved audio file: {audio_path} ({file_size} bytes)")
         
         try:
             # Transcribe using Whisper API
             with open(audio_path, 'rb') as f:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    language="en"  # Specify English for better accuracy
-                )
-            
-            if not transcript.text.strip():
-                return jsonify({'error': 'No speech detected', 'success': False}), 400
-            
-            print(f"📝 Transcription: {transcript.text[:100]}...")
-            
-            # Add user message to conversation history
-            update_conversation(session_id, "user", transcript.text)
-            
-            return jsonify({
-                'text': transcript.text,
-                'session_id': session_id,
-                'success': True
-            })
+                try:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=f,
+                        language="en"  # Specify English for better accuracy
+                    )
+                    
+                    if not transcript.text.strip():
+                        return jsonify({'error': 'No speech detected', 'success': False}), 400
+                    
+                    print(f"[TRANSCRIBE] Transcription: {transcript.text[:100]}...")
+                    
+                    # Add user message to conversation history
+                    update_conversation(session_id, "user", transcript.text)
+                    
+                    return jsonify({
+                        'text': transcript.text,
+                        'session_id': session_id,
+                        'success': True
+                    })
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"[ERROR] Transcription error: Error code: {getattr(e, 'status_code', 'unknown')} - {error_msg}")
+                    
+                    # If it's a format error, give detailed information
+                    if 'format' in error_msg.lower():
+                        return jsonify({
+                            'error': f'Invalid audio format: {error_msg}', 
+                            'details': {
+                                'file_size': file_size,
+                                'extension': file_ext,
+                                'content_type': content_type
+                            },
+                            'success': False
+                        }), 400
+                    
+                    return jsonify({'error': f'Transcription failed: {error_msg}', 'success': False}), 500
             
         except Exception as e:
-            print(f"❌ Transcription error: {str(e)}")
-            return jsonify({'error': f'Transcription failed: {str(e)}', 'success': False}), 500
+            print(f"[ERROR] File handling error: {str(e)}")
+            return jsonify({'error': f'File processing error: {str(e)}', 'success': False}), 500
             
     except Exception as e:
-        print(f"❌ General error in transcribe_audio: {str(e)}")
+        print(f"[ERROR] General error in transcribe_audio: {str(e)}")
         return jsonify({'error': f'Unexpected error: {str(e)}', 'success': False}), 500
         
     finally:
@@ -189,14 +239,14 @@ def transcribe_audio():
         if audio_path and os.path.exists(audio_path):
             try:
                 os.remove(audio_path)
-                print(f"🧹 Cleaned up: {audio_path}")
+                print(f"[CLEANUP] Cleaned up: {audio_path}")
             except Exception as e:
-                print(f"⚠️ Failed to remove temp file: {e}")
+                print(f"[WARNING] Failed to remove temp file: {e}")
 
 @app.route('/process_message', methods=['POST'])
 def process_message():
     """Process message and generate AI response"""
-    print("🤖 Message processing requested")
+    print("[AI] Message processing requested")
     
     if not client:
         return jsonify({'error': 'OpenAI client not available', 'success': False}), 500
@@ -207,9 +257,9 @@ def process_message():
         session_id = data.get('session_id')
         generate_audio = data.get('generate_audio', False)
         
-        print(f"📨 Message: {user_message[:100]}...")
-        print(f"📝 Session: {session_id}")
-        print(f"🔊 Generate audio: {generate_audio}")
+        print(f"[MSG] Message: {user_message[:100]}...")
+        print(f"[SESSION] Session: {session_id}")
+        print(f"[AUDIO] Generate audio: {generate_audio}")
         
         if not user_message:
             return jsonify({'error': 'No message provided', 'success': False}), 400
@@ -235,7 +285,7 @@ def process_message():
             )
             
             assistant_response = response.choices[0].message.content
-            print(f"🤖 AI Response: {assistant_response[:100]}...")
+            print(f"[AI] AI Response: {assistant_response[:100]}...")
             
             # Add assistant's response to conversation history
             update_conversation(session_id, "assistant", assistant_response)
@@ -252,7 +302,7 @@ def process_message():
             # Generate TTS if requested
             if generate_audio:
                 try:
-                    print("🗣️ Generating TTS...")
+                    print("[TTS] Generating TTS...")
                     tts_response = client.audio.speech.create(
                         model="tts-1",
                         voice="nova",  # Warmer, more soothing voice
@@ -271,21 +321,21 @@ def process_message():
                     tts_response.stream_to_file(audio_path)
                     response_data['audio_url'] = f'/{audio_path}'
                     
-                    print(f"🔊 Audio saved: {audio_path}")
+                    print(f"[AUDIO] Audio saved: {audio_path}")
                     
                 except Exception as tts_error:
-                    print(f"❌ TTS Error: {str(tts_error)}")
+                    print(f"[ERROR] TTS Error: {str(tts_error)}")
                     # Don't fail the whole request if TTS fails
                     response_data['audio_error'] = 'Could not generate audio'
             
             return jsonify(response_data)
             
         except Exception as ai_error:
-            print(f"❌ AI Error: {str(ai_error)}")
+            print(f"[ERROR] AI Error: {str(ai_error)}")
             return jsonify({'error': f'AI processing failed: {str(ai_error)}', 'success': False}), 500
         
     except Exception as e:
-        print(f"❌ General error in process_message: {str(e)}")
+        print(f"[ERROR] General error in process_message: {str(e)}")
         return jsonify({'error': f'Unexpected error: {str(e)}', 'success': False}), 500
 
 @app.route('/health', methods=['GET'])
@@ -317,27 +367,19 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    print("🌙 Starting Somni Sleep Assistant...")
+    print("[START] Starting Somni Sleep Assistant...")
     
     # Create necessary directories
-    os.makedirs('static/audio', exist_ok=True)
-    print("📁 Created audio directory")
-    
-    # Check environment
-    if not os.getenv('OPENAI_API_KEY'):
-        print("⚠️ WARNING: OPENAI_API_KEY not found in environment")
-    
-    # Get port from environment or default to 5000
-    port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('FLASK_ENV') != 'production'
-    
-    print(f"🚀 Starting server on port {port}")
-    print(f"🔧 Debug mode: {debug_mode}")
+    os.makedirs('sessions', exist_ok=True)
+    os.makedirs('uploads', exist_ok=True)
     
     # Run the app
-    app.run(
-        host='0.0.0.0', 
-        port=port, 
-        debug=debug_mode,
-        threaded=True
-    )
+    try:
+        # Use 0.0.0.0 to make it accessible on the network
+        # Use a non-standard port to avoid conflicts
+        app.run(host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
+    except Exception as e:
+        print(f"[ERROR] Failed to start server: {e}")
+        # Fallback to HTTP if HTTPS fails
+        print("[INFO] Falling back to HTTP...")
+        app.run(host='0.0.0.0', port=5000, debug=True)

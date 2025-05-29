@@ -132,11 +132,22 @@ class VoiceAssistant {
     }
     
     checkMicrophoneSupport() {
+        // On iOS, we need to be in a secure context (HTTPS or localhost)
+        const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || 
+                              window.location.hostname === 'localhost' || 
+                              window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+            console.warn('Not in a secure context - required for audio recording');
+            // Don't show error yet, let the actual recording attempt handle it
+        }
+        
+        // Check for basic getUserMedia support
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            this.showError('Your browser doesn\'t support audio recording.');
-            this.voiceBtn.disabled = true;
+            console.warn('getUserMedia not supported on this browser');
             return false;
         }
+        
         return true;
     }
     
@@ -243,8 +254,18 @@ class VoiceAssistant {
     
     async startRecording() {
         try {
-            // Check permissions first
-            if (!this.checkMicrophoneSupport()) return;
+            // Check if we're in a secure context (required for iOS)
+            const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || 
+                                  window.location.hostname === 'localhost' || 
+                                  window.location.hostname === '127.0.0.1';
+            
+            if (!isSecureContext) {
+                throw new Error('Audio recording requires a secure connection (HTTPS). Please access this page over HTTPS or localhost.');
+            }
+            
+            // Update UI immediately to show we're starting
+            this.isRecording = true;
+            this.updateRecordingUI(true);
             
             // Audio constraints optimized for speech
             const constraints = {
@@ -257,50 +278,99 @@ class VoiceAssistant {
                 }
             };
             
-            this.stream = await navigator.mediaDevices.getUserMedia(constraints);
-            
-            // Find best supported audio format
-            const mimeType = this.getBestAudioFormat();
-            
-            // Create MediaRecorder with optimal settings
-            const options = {
-                mimeType: mimeType,
-                audioBitsPerSecond: 128000
-            };
-            
-            try {
-                this.mediaRecorder = new MediaRecorder(this.stream, options);
-            } catch (e) {
-                // Fallback without options
-                this.mediaRecorder = new MediaRecorder(this.stream);
+            // On iOS, we need to handle the audio context differently
+            if (isIOS && !this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // Resume the audio context on iOS
+                if (this.audioContext.state === 'suspended') {
+                    await this.audioContext.resume();
+                }
             }
             
+            try {
+                this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('Successfully got audio stream');
+            } catch (err) {
+                console.error('Error getting audio stream:', err);
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    throw new Error('Microphone access was denied. Please allow microphone access in your browser settings to use voice features.');
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    throw new Error('No microphone found. Please ensure you have a working microphone connected.');
+                } else {
+                    throw new Error('Could not access microphone. Please check your microphone settings and try again.');
+                }
+            }
+            
+            // Reset chunks for new recording
             this.audioChunks = [];
             this.recordingStartTime = Date.now();
             
-            // Set up MediaRecorder event handlers
-            this.mediaRecorder.addEventListener('dataavailable', (event) => {
-                if (event.data.size > 0) {
-                    this.audioChunks.push(event.data);
+            // Check if MediaRecorder is available
+            if (window.MediaRecorder) {
+                // Find best supported audio format
+                const mimeType = this.getBestAudioFormat();
+                console.log(`Using media format: ${mimeType || 'browser default'}`);
+                
+                // Create MediaRecorder with optimal settings
+                let options = {};
+                if (mimeType) {
+                    options = {
+                        mimeType: mimeType,
+                        audioBitsPerSecond: 128000
+                    };
                 }
-            });
-            
-            this.mediaRecorder.addEventListener('stop', () => {
-                this.processRecording();
-            });
-            
-            this.mediaRecorder.addEventListener('error', (event) => {
-                console.error('MediaRecorder error:', event);
-                this.showError('Recording error occurred');
-                this.resetUI();
-            });
-            
-            // Start recording with timeslice for better memory management
-            this.mediaRecorder.start(100);
-            this.isRecording = true;
-            
-            // Update UI
-            this.updateRecordingUI(true);
+                
+                try {
+                    this.mediaRecorder = new MediaRecorder(this.stream, options);
+                } catch (e) {
+                    console.warn('Error with specified options, trying without options:', e);
+                    try {
+                        // Fallback without options
+                        this.mediaRecorder = new MediaRecorder(this.stream);
+                    } catch (e2) {
+                        console.error('MediaRecorder creation failed completely:', e2);
+                        this.showError('Your browser cannot record audio. Please try a different browser.');
+                        this.stopAllTracks();
+                        return;
+                    }
+                }
+                
+                // Set up MediaRecorder event handlers
+                this.mediaRecorder.addEventListener('dataavailable', (event) => {
+                    if (event.data.size > 0) {
+                        this.audioChunks.push(event.data);
+                        console.log(`Got audio chunk: ${event.data.size} bytes, type: ${event.data.type}`);
+                    }
+                });
+                
+                this.mediaRecorder.addEventListener('stop', () => {
+                    console.log('MediaRecorder stopped, processing recording...');
+                    this.processRecording();
+                });
+                
+                this.mediaRecorder.addEventListener('error', (event) => {
+                    console.error('MediaRecorder error:', event);
+                    this.showError('Recording error occurred');
+                    this.resetUI();
+                });
+                
+                // Start recording with timeslice for better memory management
+                // Use larger timeslice for iOS to avoid excessive small chunks
+                const timeslice = isIOS ? 1000 : 100;
+                this.mediaRecorder.start(timeslice);
+                console.log(`MediaRecorder started with timeslice ${timeslice}ms`);
+                
+            } else {
+                // Fallback for browsers without MediaRecorder
+                console.warn('MediaRecorder not available, using alternative approach');
+                this.showError('Your browser has limited recording support. Audio quality may be reduced.');
+                
+                // We'll use AudioContext to capture audio
+                // This is a placeholder for a more complex AudioContext-based recording solution
+                // which would be needed for full compatibility
+                this.stopAllTracks();
+                return;
+            }
             
             // Provide feedback
             this.provideHapticFeedback();
@@ -320,26 +390,63 @@ class VoiceAssistant {
     }
     
     getBestAudioFormat() {
-        const formats = [
-            'audio/webm;codecs=opus',
-            'audio/webm',
-            'audio/mp4',
-            'audio/mpeg',
-            'audio/wav'
-        ];
+        // Prioritize formats based on browser/platform
+        let formats = [];
         
-        // iOS specific handling
         if (isIOS) {
-            formats.unshift('audio/mp4', 'audio/mpeg');
+            // iOS prefers these formats
+            formats = [
+                'audio/mp4',
+                'audio/m4a',
+                'audio/aac',
+                'audio/mpeg',
+                'audio/wav'
+            ];
+        } else if (navigator.userAgent.indexOf('Chrome') !== -1) {
+            // Chrome (including Android Chrome) works best with these
+            formats = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/wav'
+            ];
+        } else {
+            // Other browsers - try various formats
+            formats = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/mpeg',
+                'audio/wav'
+            ];
         }
         
+        // Find the first supported format
         for (const format of formats) {
             if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(format)) {
+                console.log(`Using audio format: ${format}`);
                 return format;
             }
         }
         
+        console.log('No specific format supported, using browser default');
         return ''; // Let browser choose default
+    }
+    
+    stopAllTracks() {
+        // Helper function to safely stop all media tracks
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => {
+                try {
+                    track.stop();
+                    console.log(`Stopped track: ${track.kind}`);
+                } catch (e) {
+                    console.error('Error stopping track:', e);
+                }
+            });
+            this.stream = null;
+        }
     }
     
     stopRecording() {
@@ -350,13 +457,11 @@ class VoiceAssistant {
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
             try {
                 this.mediaRecorder.stop();
+                console.log('MediaRecorder stopped');
                 this.isRecording = false;
                 
-                // Stop all tracks
-                if (this.stream) {
-                    this.stream.getTracks().forEach(track => track.stop());
-                    this.stream = null;
-                }
+                // Stop all tracks using the helper function
+                this.stopAllTracks();
                 
                 // Update UI immediately
                 this.updateRecordingUI(false);
@@ -364,13 +469,23 @@ class VoiceAssistant {
             } catch (error) {
                 console.error('Error stopping recording:', error);
                 this.resetUI();
+                // Even if there's an error, try to stop the tracks
+                this.stopAllTracks();
             }
+        } else {
+            // If we don't have a mediaRecorder or it's already inactive
+            // still make sure to stop any tracks and update UI
+            this.isRecording = false;
+            this.stopAllTracks();
+            this.updateRecordingUI(false);
         }
     }
     
     async processRecording() {
         // Check recording duration
         const duration = Date.now() - this.recordingStartTime;
+        console.log(`Recording duration: ${duration}ms, chunks: ${this.audioChunks.length}`);
+        
         if (duration < 500) {
             this.showError('Recording too short. Please hold to speak.');
             this.resetUI();
@@ -384,13 +499,79 @@ class VoiceAssistant {
         }
         
         try {
-            // Create blob with detected mime type
-            const mimeType = this.mediaRecorder.mimeType || 'audio/webm';
+            // Analyze chunks for debugging
+            this.audioChunks.forEach((chunk, index) => {
+                console.log(`Chunk ${index}: size=${chunk.size} bytes, type=${chunk.type}`);
+            });
+            
+            // Get the mime type from the MediaRecorder or the first chunk
+            let mimeType = 'audio/webm'; // Default fallback
+            
+            if (this.mediaRecorder && this.mediaRecorder.mimeType) {
+                mimeType = this.mediaRecorder.mimeType;
+                console.log(`MediaRecorder reported mime type: ${mimeType}`);
+            } else if (this.audioChunks.length > 0 && this.audioChunks[0].type) {
+                // Use the type from the first chunk if available
+                mimeType = this.audioChunks[0].type;
+                console.log(`Using mime type from first chunk: ${mimeType}`);
+            } else {
+                console.log(`Using default mime type: ${mimeType}`);
+            }
+            
+            // Platform-specific handling
+            if (isIOS) {
+                // For iOS, prefer audio/mp4 format
+                if (!mimeType.includes('mp4') && !mimeType.includes('m4a')) {
+                    const originalMimeType = mimeType;
+                    mimeType = 'audio/mp4';
+                    console.log(`iOS: Changed mime type from ${originalMimeType} to ${mimeType}`);
+                }
+            } else if (isAndroid) {
+                // For Android, prefer webm format if available
+                if (!mimeType.includes('webm') && MediaRecorder.isTypeSupported('audio/webm')) {
+                    const originalMimeType = mimeType;
+                    mimeType = 'audio/webm';
+                    console.log(`Android: Changed mime type from ${originalMimeType} to ${mimeType}`);
+                }
+            }
+            
+            // Create blob with appropriate mime type
             const audioBlob = new Blob(this.audioChunks, { type: mimeType });
+            
+            console.log(`Created audio blob: size=${audioBlob.size} bytes, type=${audioBlob.type}`);
             
             if (audioBlob.size === 0) {
                 throw new Error('Empty audio recording');
+            } else if (audioBlob.size < 100) {
+                // Very small files are likely corrupt
+                throw new Error('Recording too small to process');
             }
+            
+            // Create audio element for debugging (will be hidden)
+            const debugAudio = document.createElement('audio');
+            debugAudio.style.display = 'none';
+            debugAudio.controls = true;
+            const audioURL = URL.createObjectURL(audioBlob);
+            debugAudio.src = audioURL;
+            document.body.appendChild(debugAudio);
+            
+            // Validate that the blob is playable
+            debugAudio.onloadedmetadata = () => {
+                console.log(`Debug audio duration: ${debugAudio.duration}s`);
+                if (debugAudio.duration === 0 || isNaN(debugAudio.duration)) {
+                    console.warn('Warning: Audio duration is zero or NaN, may indicate corrupt audio');
+                }
+            };
+            
+            debugAudio.onerror = (e) => {
+                console.error('Debug audio load error:', e);
+            };
+            
+            // Clean up after a few seconds
+            setTimeout(() => {
+                URL.revokeObjectURL(audioURL);
+                debugAudio.remove();
+            }, 5000);
             
             // Show processing state
             this.statusText.textContent = 'Processing your message...';
@@ -402,32 +583,72 @@ class VoiceAssistant {
             
         } catch (error) {
             console.error('Error processing recording:', error);
-            this.showError('Could not process audio. Please try again.');
+            this.showError(`Audio processing error: ${error.message || 'Unknown error'}`);
             this.resetUI();
         }
     }
     
     async uploadAudio(audioBlob) {
-        const formData = new FormData();
-        const filename = `recording_${Date.now()}.${this.getFileExtension(audioBlob.type)}`;
-        formData.append('audio', audioBlob, filename);
-        formData.append('session_id', this.sessionId);
-        
         try {
+            // Force to use a consistently supported format based on platform
+            let finalBlob = audioBlob;
+            let finalExtension = this.getFileExtension(audioBlob.type);
+            
+            // Log info for debugging
+            console.log(`Original audio blob: type=${audioBlob.type}, size=${audioBlob.size} bytes`);
+            
+            // Ensure we have a valid file extension that OpenAI accepts
+            const validExtensions = ['m4a', 'mp3', 'webm', 'wav', 'ogg'];
+            if (!validExtensions.includes(finalExtension)) {
+                console.log(`Converting unsafe extension ${finalExtension} to safe format`);
+                finalExtension = isIOS ? 'm4a' : 'webm';
+            }
+            
+            // Create FormData with the proper extension
+            const formData = new FormData();
+            const filename = `recording_${Date.now()}.${finalExtension}`;
+            formData.append('audio', finalBlob, filename);
+            formData.append('session_id', this.sessionId);
+            
+            console.log(`Uploading audio as: ${filename}`);
+            
+            // Show processing state
+            this.statusText.textContent = 'Processing your message...';
+            this.btnText.textContent = 'Processing...';
+            this.micIcon.textContent = '⏳';
+            
+            // Send to server with explicit timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+            
             const response = await fetch('/transcribe_audio', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: controller.signal
             });
             
+            clearTimeout(timeoutId);
+            
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorText = await response.text();
+                console.error(`Server error: ${response.status}`, errorText);
+                throw new Error(`Server error: ${response.status}`);
             }
             
             const data = await response.json();
+            console.log('Server response:', data);
             
             if (data.success && data.text) {
+                // Add user message to the conversation
                 this.addMessage(data.text, 'user');
-                this.sessionId = data.session_id || this.sessionId;
+                
+                // Save the session ID if provided
+                if (data.session_id) {
+                    this.sessionId = data.session_id;
+                    console.log('Updated session ID:', this.sessionId);
+                }
+                
+                // Process the message to get AI response
                 await this.processMessage(data.text);
             } else {
                 throw new Error(data.error || 'Transcription failed');
@@ -435,20 +656,36 @@ class VoiceAssistant {
             
         } catch (error) {
             console.error('Upload error:', error);
-            this.showError('Could not connect to server. Please check your connection.');
+            if (error.name === 'AbortError') {
+                this.showError('Request timed out. Please try again.');
+            } else {
+                this.showError(error.message || 'Could not process audio. Please try again.');
+            }
             this.resetUI();
         }
     }
     
     getFileExtension(mimeType) {
+        // More comprehensive mapping of MIME types to file extensions
         const typeMap = {
             'audio/webm': 'webm',
+            'audio/webm;codecs=opus': 'webm',
             'audio/mp4': 'm4a',
+            'audio/m4a': 'm4a',
+            'audio/aac': 'm4a',
             'audio/mpeg': 'mp3',
             'audio/wav': 'wav',
-            'audio/ogg': 'ogg'
+            'audio/ogg': 'ogg',
+            'audio/ogg;codecs=opus': 'ogg'
         };
-        return typeMap[mimeType] || 'webm';
+        
+        // Default to the safest option for the platform
+        if (mimeType in typeMap) {
+            return typeMap[mimeType];
+        } else {
+            console.log(`Unknown MIME type: ${mimeType}, defaulting to safe format`);
+            return isIOS ? 'm4a' : 'webm';
+        }
     }
     
     async sendQuickMessage(message) {
